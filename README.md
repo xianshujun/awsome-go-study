@@ -13,6 +13,6 @@
 - 3、工程实践 [实践](go-advance/go-engineering.md)
 
 ## 3、go语言开发实战
-- 1、go语言网络开发 [网络](go-practice/go-webdev.md)
+- 1、go语言网络开发 [网络](go-pratical-dev/go-webdev.md)
 - 2、中间件与工具集成 [中间件](go-pratical-dev/go-middleware.md)
 - 3、go语言微服务相关 [微服务](go-pratical-dev/go-microservice.md)
