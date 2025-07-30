@@ -1,5 +1,6 @@
 # 教程：开始使用泛型
 
+> **[↩ 返回到目录](../doc.md)**
 ## 目录
 
 - 先决条件
@@ -429,3 +430,4 @@ func SumNumbers[K comparable, V Number](m map[K]V) V {
     return s
 }
 ```
+> **[↩ 返回到目录](../doc.md)**

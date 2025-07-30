@@ -1,5 +1,6 @@
 # 教程：使用 Go 和 Gin 开发一个 RESTful API
 
+> **[↩ 返回到目录](../doc.md)**
 ## 目录
 
 - 先决条件
@@ -490,3 +491,4 @@ func getAlbumByID(c *gin.Context) {
     c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
 }
 ```
+> **[↩ 返回到目录](../doc.md)**

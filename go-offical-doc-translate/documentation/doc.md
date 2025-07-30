@@ -19,13 +19,13 @@ Go 语言具有表现力强、简洁、清晰且高效的特点。其并发机�
 ### 教程：[使用多模块工作区入门](tutorial/workspaces.md)
 介绍在 Go 中创建和使用多模块工作区的基本方法。多模块工作区对于跨多个模块进行更改非常有用。
 
-### 教程：使用 Go 和 Gin 开发 RESTful API
+### 教程：[使用 Go 和 Gin 开发 RESTful API](tutorial/web-service-gin.md)
 介绍如何使用 Go 语言和 Gin Web 框架编写一个 RESTful Web 服务 API 的基础知识。
 
-### 教程：泛型入门
+### 教程：[泛型入门](tutorial/generics.md)
 通过泛型，你可以声明并使用那些设计为适用于调用代码提供的任意类型集合的函数或类型。
 
-### 教程：模糊测试入门
+### 教程：[模糊测试入门](tutorial/fuzz.md)
 模糊测试可以为你的测试生成输入数据，帮助发现你可能遗漏的边界情况和安全问题。
 
 ### 编写 Web 应用程序
