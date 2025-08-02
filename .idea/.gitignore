@@ -1,3 +1,11 @@
+# 忽略所有 .iml 文件
+*.iml
+
+# 忽略所有 .xml 文件（如果你确定要忽略所有xml文件）
+*.xml
+
+# 或者更具体地忽略特定的 xml 文件
+vsc.xml
 # 默认忽略的文件
 /shelf/
 /workspace.xml

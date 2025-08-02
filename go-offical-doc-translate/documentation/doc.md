@@ -66,7 +66,7 @@ $ go install golang.org/x/website/tour@latest
 ### [GO圾回收器指南](gc-guide.md)
 描述 Go 如何管理内存，以及如何充分利用其垃圾回收机制的文档。
 
-### [管理依赖项]()
+### [管理依赖项](modules/managing-dependencies.md)
 当你的代码使用外部包时，这些包（以模块形式分发）就成为你的依赖项。
 
 ### 模糊测试（Fuzzing）
