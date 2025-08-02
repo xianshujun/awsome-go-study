@@ -69,13 +69,13 @@ $ go install golang.org/x/website/tour@latest
 ### [管理依赖项](modules/managing-dependencies.md)
 当你的代码使用外部包时，这些包（以模块形式分发）就成为你的依赖项。
 
-### 模糊测试（Fuzzing）
+### [模糊测试（Fuzzing)](tutorial/fuzz.md)
 Go 模糊测试的主文档页面。
 
-### Go 应用程序的覆盖率测试
+### [Go 应用程序的覆盖率测试](build-cover.md)
 Go 应用程序覆盖率测试的主文档页面。
 
-### 基于性能分析的优化（Profile-guided optimization, PGO）
+### [基于性能分析的优化（Profile-guided optimization, PGO）](pgo.md)
 Go 应用程序基于性能分析的优化（PGO）的主文档页面。
 
 ---
