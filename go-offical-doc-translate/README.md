@@ -80,26 +80,21 @@ Go 程序的引导式实践
 ### 图书
 
 - **[《Go 程序设计语言》](https://www.gopl.io/)**  
-  ![封面](https://www.gopl.io/pics/gopl.jpg)  
   Alan A. A. Donovan, Brian W. Kernighan  
   [查看书籍](https://www.gopl.io/)
 
 - **[《Get Programming with Go》](https://www.manning.com/books/get-programming-with-go)**  
-  ![封面](https://images.manning.com/720/960/resize/book/a/699b11a-a716-41d9-9389-f77d01a51349/yangman2.png)  
   Nathan Youngman, Roger Peppé  
   [访问网站](https://www.manning.com/books/get-programming-with-go)
 
 - **[《Go 程序设计蓝图》](https://github.com/matryer/goblueprints)**  
-  ![封面](https://github.com/matryer/goblueprints/raw/master/images/cover.jpg)  
   这是该书的官方源代码仓库。  
   [查看代码库](https://github.com/matryer/goblueprints)
 
 - **[《Go 语言入门》](https://www.oreilly.com/library/view/introducing-go/9781491941997/)**  
-  ![封面](https://akamaicovers.oreilly.com/images/0636920046516/cat.gif)  
   Caleb Doxsey  
   [访问 O'Reilly](https://www.oreilly.com/library/view/introducing-go/9781491941997/)
 
 - **[《Go 中的并发》](https://www.oreilly.com/library/view/concurrency-in-go/9781491941218/)**  
-  ![封面](https://akamaicovers.oreilly.com/images/0636920048527/cat.gif)  
   Katherine Cox-Buday  
   [访问 O'Reilly](https://www.oreilly.com/library/view/concurrency-in-go/9781491941218/)
