@@ -1,2938 +1,986 @@
-# Go语言中间件与工具集成
+# Go 语言中间件与工具集成 —— 系统集成能力
 
-## 前言
+> 面向对象：已经会写 HTTP 服务，想让服务"能连数据库、能扛流量、能被观测"的同学。
+> 阅读方式：每个中间件都给出**独立可复用的组件**（`NewXxx` 构造 + 配置 + 测试），而不是一次性代码片段。
+> 环境要求：Go 1.22+。涉及外部依赖的章节会给出 `docker run` 一键启动命令，无需手动安装。
 
-本文档将全面介绍Go语言的中间件与工具集成，帮助读者更好地理解和使用Go语言进行中间件开发和工具集成。通过学习本文档，你将掌握Go语言中间件与工具集成的核心概念和常用技巧，包括HTTP中间件、日志中间件、认证中间件、数据库集成、缓存集成等。
+## 目录
 
-## 第一章：HTTP中间件
+- [第一章 HTTP 中间件](#第一章-http-中间件)
+- [第二章 数据库集成](#第二章-数据库集成)
+- [第三章 缓存集成（Redis）](#第三章-缓存集成redis)
+- [第四章 消息队列集成](#第四章-消息队列集成)
+- [第五章 配置、日志与可观测性](#第五章-配置日志与可观测性)
+- [第六章 工程工具集成](#第六章-工程工具集成)
+- [第七章 容错：限流 / 熔断 / 重试 / 超时](#第七章-容错限流--熔断--重试--超时)
+- [第八章 实战：组装一个可观测的小型后端](#第八章-实战组装一个可观测的小型后端)
+- [附录：高频面试题汇总](#附录高频面试题汇总)
 
-### 1.1 中间件基础
+---
 
-中间件是一种在HTTP请求处理链中插入处理逻辑的模式。
+## 第一章 HTTP 中间件
 
-**基本中间件**
+### 1.1 中间件原理与可复用骨架
+
+中间件的本质是 `func(http.Handler) http.Handler`。为了能像搭积木一样组合，我们定义一个统一的 `Chain`：
 
 ```go
-package main
+package mw
 
-import (
-    "fmt"
-    "net/http"
-    "time"
-)
+import "net/http"
 
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        fmt.Printf("[%s] %s %s\n", time.Now().Format(time.RFC3339), r.Method, r.URL.Path)
-        next.ServeHTTP(w, r)
-    })
-}
+// Middleware 统一签名，方便组合
+type Middleware func(http.Handler) http.Handler
 
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Hello, World!"))
-    })
-
-    handler := loggingMiddleware(mux)
-    
-    fmt.Println("Server starting on :8080")
-    http.ListenAndServe(":8080", handler)
+// Chain 按注册顺序包裹：先注册的在外层（最先收到请求、最后写出响应）
+func Chain(h http.Handler, mws ...Middleware) http.Handler {
+	for i := len(mws) - 1; i >= 0; i-- {
+		h = mws[i](h)
+	}
+	return h
 }
 ```
 
-### 1.2 日志中间件
+```mermaid
+flowchart LR
+    REQ[请求] --> A[RequestID]
+    A --> B[Recover]
+    B --> C[Logging]
+    C --> D[CORS]
+    D --> E[Auth]
+    E --> F[RateLimit]
+    F --> G[业务 Handler]
+    G --> H[响应]
+```
 
-日志中间件用于记录HTTP请求和响应。
+### 1.2 日志中间件（结构化）
 
-**请求日志**
+> 为什么不用 `fmt.Println`？因为生产日志要被 ELK/Loki 采集，必须是结构化的（JSON）。
 
 ```go
-package main
+package mw
 
 import (
-    "log"
-    "net/http"
-    "time"
+	"log/slog"
+	"net/http"
+	"time"
 )
 
+// responseWriter 包装原生 Writer 以捕获状态码和响应字节数
 type responseWriter struct {
-    http.ResponseWriter
-    status int
+	http.ResponseWriter
+	status int
+	bytes  int
 }
 
-func (rw *responseWriter) WriteHeader(code int) {
-    rw.status = code
-    rw.ResponseWriter.WriteHeader(code)
+func (w *responseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
 }
 
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        
-        rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
-        next.ServeHTTP(rw, r)
-        
-        duration := time.Since(start)
-        log.Printf("%s %s %d %v", r.Method, r.URL.Path, rw.status, duration)
-    })
+func (w *responseWriter) Write(b []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += n
+	return n, err
 }
 
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Hello, World!"))
-    })
-
-    handler := loggingMiddleware(mux)
-    
-    log.Println("Server starting on :8080")
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 1.3 认证中间件
-
-认证中间件用于验证用户身份。
-
-**API Key认证**
-
-```go
-package main
-
-import (
-    "net/http"
-)
-
-type APIKeyMiddleware struct {
-    apiKeys map[string]bool
-}
-
-func NewAPIKeyMiddleware(apiKeys []string) *APIKeyMiddleware {
-    keys := make(map[string]bool)
-    for _, key := range apiKeys {
-        keys[key] = true
-    }
-    return &APIKeyMiddleware{apiKeys: keys}
-}
-
-func (am *APIKeyMiddleware) Middleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        apiKey := r.Header.Get("X-API-Key")
-        if apiKey == "" {
-            http.Error(w, "API Key required", http.StatusUnauthorized)
-            return
-        }
-
-        if !am.apiKeys[apiKey] {
-            http.Error(w, "Invalid API Key", http.StatusUnauthorized)
-            return
-        }
-
-        next.ServeHTTP(w, r)
-    })
-}
-
-func main() {
-    auth := NewAPIKeyMiddleware([]string{"key1", "key2", "key3"})
-    
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Protected data"))
-    })
-
-    handler := auth.Middleware(mux)
-    
-    fmt.Println("Server starting on :8080")
-    http.ListenAndServe(":8080", handler)
+func Logging(logger *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(ww, r)
+			logger.Info("http_request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.status,
+				"bytes", ww.bytes,
+				"cost_ms", time.Since(start).Milliseconds(),
+				"request_id", GetRequestID(r.Context()),
+			)
+		})
+	}
 }
 ```
 
-### 1.4 CORS中间件
-
-CORS中间件用于处理跨域请求。
-
-**基本CORS**
+### 1.3 认证中间件（JWT）
 
 ```go
-package main
+package mw
 
 import (
-    "net/http"
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+type ctxKey string
 
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
+const userIDKey ctxKey = "user_id"
 
-        next.ServeHTTP(w, r)
-    })
+func Auth(secret []byte) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if raw == "" {
+				http.Error(w, `{"code":40100,"msg":"缺少凭证"}`, http.StatusUnauthorized)
+				return
+			}
+			token, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, jwt.ErrSignatureInvalid // 固定算法，防 alg=none
+				}
+				return secret, nil
+			})
+			if err != nil || !token.Valid {
+				http.Error(w, `{"code":40101,"msg":"凭证无效"}`, http.StatusUnauthorized)
+				return
+			}
+			claims := token.Claims.(jwt.MapClaims)
+			uid := claims["uid"].(string)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userIDKey, uid)))
+		})
+	}
 }
 
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Data"))
-    })
-
-    handler := corsMiddleware(mux)
-    
-    fmt.Println("Server starting on :8080")
-    http.ListenAndServe(":8080", handler)
+// UserID 从 context 取当前用户
+func UserID(ctx context.Context) string {
+	uid, _ := ctx.Value(userIDKey).(string)
+	return uid
 }
 ```
 
-### 1.5 小结
-
-本章介绍了Go语言的HTTP中间件，包括中间件基础、日志中间件、认证中间件、CORS中间件等。我们学习了Go语言如何创建中间件、构建中间件链、实现常见的中间件功能等。掌握好Go语言的中间件对于编写可维护的HTTP服务非常重要。
-
-下一章我们将学习Go语言的数据库集成，包括SQL数据库、ORM、连接池等，以及它们的使用方法和注意事项。
-
-## 第二章：数据库集成
-
-### 2.1 SQL数据库
-
-Go语言提供了database/sql包来操作SQL数据库。
-
-**基本数据库操作**
+**测试中间件**（中间件天然好测，因为它是纯函数）：
 
 ```go
-package main
+func TestAuth_RejectsMissingToken(t *testing.T) {
+	h := Auth([]byte("k"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("不应该执行到业务 Handler")
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("期望 401，实际 %d", rec.Code)
+	}
+}
+```
 
+### 1.4 CORS 中间件
+
+浏览器同源策略会拦截跨域请求，CORS 就是服务端声明"我允许谁来访问"。
+
+```go
+func CORS(allowOrigins []string) Middleware {
+	allowed := make(map[string]bool, len(allowOrigins))
+	for _, o := range allowOrigins {
+		allowed[o] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			// 预检请求直接返回，不进业务
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+```
+
+> ⚠️ 当 `Allow-Credentials=true` 时，`Allow-Origin` **不能是 `*`**，必须回显具体域名，否则浏览器拒绝。
+
+### 1.5 限流中间件（令牌桶）
+
+限流保护自己不被突发流量打垮。用 `golang.org/x/time/rate` 的令牌桶：
+
+```go
+import "golang.org/x/time/rate"
+
+func RateLimit(rps int, burst int) Middleware {
+	// 按 IP 维护独立限流器
+	limiters := sync.Map{}
+	getLimiter := func(key string) *rate.Limiter {
+		if v, ok := limiters.Load(key); ok {
+			return v.(*rate.Limiter)
+		}
+		l := rate.NewLimiter(rate.Limit(rps), burst)
+		limiters.Store(key, l)
+		return l
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			if !getLimiter(ip).Allow() {
+				http.Error(w, `{"code":42900,"msg":"请求过于频繁"}`, http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+```
+
+```mermaid
+flowchart LR
+    subgraph 令牌桶
+      T[令牌以固定速率放入] --> B[桶: 容量 burst]
+    end
+    R[请求到达] --> C{桶里有令牌?}
+    B --> C
+    C -- 有 --> D[取走1个令牌, 放行]
+    C -- 无 --> E[拒绝 429]
+```
+
+> 生产环境多实例部署时，内存限流会"各自为政"，需要改用 **Redis + Lua 脚本**做集中式限流。
+
+### 1.6 RequestID 与 Recover
+
+```go
+func RequestID() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := r.Header.Get("X-Request-ID")
+			if id == "" {
+				id = uuid.NewString()
+			}
+			w.Header().Set("X-Request-ID", id)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey("rid"), id)))
+		})
+	}
+}
+
+func Recover(logger *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if err := recover(); err != nil {
+					logger.Error("panic", "err", err, "stack", string(debug.Stack()))
+					http.Error(w, `{"code":50000,"msg":"服务器内部错误"}`, http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+```
+
+### 1.7 本章小结与面试题
+
+**要点回顾**：中间件是纯函数，天然可测试；顺序决定语义（Recover 要最外层，Auth 要在业务前）；跨实例限流要用共享存储。
+
+**面试题**：日志中间件如何拿到状态码？限流算法有哪几种（令牌桶/漏桶/滑动窗口）？CORS 预检请求是什么？
+
+---
+
+## 第二章 数据库集成
+
+### 2.1 database/sql 与连接池
+
+Go 标准库 `database/sql` 自带连接池，但**默认参数很激进**，生产必须调。
+
+```go
 import (
-    "database/sql"
-    "fmt"
-    "log"
-    
-    _ "github.com/lib/pq"
+	"database/sql"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
+func OpenDB(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("mysql", dsn) // 注意：此时并未真正建立连接
+	if err != nil {
+		return nil, err
+	}
+
+	db.SetMaxOpenConns(50)                  // 最大连接数（含使用中）
+	db.SetMaxIdleConns(25)                  // 最大空闲连接数
+	db.SetConnMaxLifetime(30 * time.Minute) // 连接最长寿命，避免被 MySQL 断开
+	db.SetConnMaxIdleTime(5 * time.Minute)  // 空闲多久回收
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil { // 真正验证连通性
+		return nil, err
+	}
+	return db, nil
+}
+```
+
+`SetMaxIdleConns` 一定要 ≤ `SetMaxOpenConns`，否则多余的空闲连接会被立刻关闭（"连接抖动"）。
+
+### 2.2 SQL 注入与预编译
+
+> **绝对不要**用字符串拼接拼 SQL！这是最经典的漏洞。
+
+```go
+// ❌ 危险：输入 `1 OR 1=1` 就能拖库
+query := "SELECT * FROM users WHERE name = '" + name + "'"
+
+// ✅ 正确：占位符预编译，参数与语句分离
+row := db.QueryRowContext(ctx, "SELECT id, name FROM users WHERE name = ?", name)
+```
+
+### 2.3 事务与 Context 超时
+
+```go
+func Transfer(ctx context.Context, db *sql.DB, from, to int64, amount float64) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // 若已 Commit，Rollback 返回 ErrTxDone，无副作用
+
+	if _, err := tx.ExecContext(ctx, "UPDATE accounts SET balance = balance - ? WHERE id = ?", amount, from); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE accounts SET balance = balance + ? WHERE id = ?", amount, to); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+```
+
+**注意**：所有 `*Context` 方法都要传 `ctx`，这样客户端断开或超时后，数据库能及时取消慢查询，避免连接被占用。
+
+### 2.4 ORM：用还是不用？
+
+| 场景 | 建议 |
+|---|---|
+| 复杂查询、性能敏感 | 手写 SQL（`sqlx` 简化映射） |
+| CRUD 为主、迭代快 | ORM（GORM） |
+| 团队 SQL 能力弱 | ORM |
+
+GORM 示例：
+
+```go
 type User struct {
-    ID       int
-    Name     string
-    Email    string
-    Age      int
-    CreateAt time.Time
+	ID    uint   `gorm:"primaryKey"`
+	Name  string `gorm:"size:32;index"`
+	Email string `gorm:"uniqueIndex"`
 }
 
-func main() {
-    db, err := sql.Open("postgres", "user=postgres dbname=test sslmode=disable")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer db.Close()
-    
-    err = db.Ping()
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    user := User{
-        Name:  "John Doe",
-        Email: "john@example.com",
-        Age:   30,
-    }
-    
-    err = createUser(db, &user)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    found, err := getUser(db, user.ID)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Found user: %+v\n", found)
-}
+db.AutoMigrate(&User{})
+db.Create(&User{Name: "gopher", Email: "g@go.dev"})
 
-func createUser(db *sql.DB, user *User) error {
-    query := `INSERT INTO users (name, email, age) VALUES ($1, $2, $3) RETURNING id, created_at`
-    
-    err := db.QueryRow(query, user.Name, user.Email, user.Age).Scan(&user.ID, &user.CreateAt)
-    if err != nil {
-        return err
-    }
-    
-    return nil
-}
+var u User
+db.First(&u, "email = ?", "g@go.dev")
+```
 
-func getUser(db *sql.DB, id int) (*User, error) {
-    query := `SELECT id, name, email, age, created_at FROM users WHERE id = $1`
-    
-    var user User
-    err := db.QueryRow(query, id).Scan(&user.ID, &user.Name, &user.Email, &user.Age, &user.CreateAt)
-    if err != nil {
-        return nil, err
-    }
-    
-    return &user, nil
+> **面试点**：ORM 的 N+1 查询问题（循环里查关联表），用 `Preload` 一次查出来。ORM 也会生成不可控 SQL，线上慢查询要能定位到具体语句。
+
+### 2.5 本章小结与面试题
+
+**要点回顾**：连接池三参数要显式设置；永远用占位符；事务记得 `defer Rollback`；所有查询带 `ctx`。
+
+**面试题**：连接池参数如何设置？`SetConnMaxLifetime` 解决什么问题？如何排查连接泄漏？ORM 的优缺点？
+
+---
+
+## 第三章 缓存集成（Redis）
+
+### 3.1 快速接入 go-redis
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+```go
+import "github.com/redis/go-redis/v9"
+
+rdb := redis.NewClient(&redis.Options{
+	Addr:         "localhost:6379",
+	PoolSize:     20,
+	ReadTimeout:  500 * time.Millisecond,
+	WriteTimeout: 500 * time.Millisecond,
+})
+
+ctx := context.Background()
+rdb.Set(ctx, "user:1", `{"name":"gopher"}`, 10*time.Minute)
+val, err := rdb.Get(ctx, "user:1").Result()
+if errors.Is(err, redis.Nil) {
+	// key 不存在（这是正常情况，不是错误）
 }
 ```
 
-**批量操作**
+### 3.2 缓存三大经典问题 ⭐
+
+```mermaid
+flowchart TB
+    subgraph 穿透
+        P1[查不存在的数据] --> P2[缓存和DB都没] --> P3[每次都打到DB]
+    end
+    subgraph 击穿
+        B1[热点key过期] --> B2[大量请求同时查DB]
+    end
+    subgraph 雪崩
+        A1[大批key同时过期] --> A2[DB瞬时被压垮]
+    end
+```
+
+| 问题 | 原因 | 解决方案 |
+|---|---|---|
+| 缓存穿透 | 查不存在的数据，缓存永远不命中 | 布隆过滤器 / 缓存空值（短过期） |
+| 缓存击穿 | 单个热点 key 过期瞬间被并发打 DB | 互斥锁重建 / 逻辑过期不过期 |
+| 缓存雪崩 | 大量 key 同时失效 | 过期时间加随机抖动 / 多级缓存 |
+
+**互斥锁防击穿**（配合本地单飞更佳）：
 
 ```go
-func batchInsertUsers(db *sql.DB, users []User) error {
-    tx, err := db.Begin()
-    if err != nil {
-        return err
-    }
-    
-    defer func() {
-        if err != nil {
-            tx.Rollback()
-        }
-    }()
-    
-    stmt, err := tx.Prepare(`INSERT INTO users (name, email, age) VALUES ($1, $2, $3)`)
-    if err != nil {
-        return err
-    }
-    defer stmt.Close()
-    
-    for _, user := range users {
-        _, err = stmt.Exec(user.Name, user.Email, user.Age)
-        if err != nil {
-            return err
-        }
-    }
-    
-    return tx.Commit()
-}
+func GetUser(ctx context.Context, rdb *redis.Client, db *sql.DB, id string) (*User, error) {
+	key := "user:" + id
+	if val, err := rdb.Get(ctx, key).Result(); err == nil {
+		var u User
+		_ = json.Unmarshal([]byte(val), &u)
+		return &u, nil
+	}
 
-func listUsers(db *sql.DB) ([]User, error) {
-    query := `SELECT id, name, email, age, created_at FROM users ORDER BY id`
-    
-    rows, err := db.Query(query)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-    
-    var users []User
-    for rows.Next() {
-        var user User
-        err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Age, &user.CreateAt)
-        if err != nil {
-            return nil, err
-        }
-        users = append(users, user)
-    }
-    
-    return users, nil
+	// 只允许一个协程去查 DB，其余等待
+	lockKey := "lock:" + key
+	ok, _ := rdb.SetNX(ctx, lockKey, 1, 3*time.Second).Result()
+	if !ok {
+		time.Sleep(50 * time.Millisecond)
+		return GetUser(ctx, rdb, db, id) // 简化：实际应重试有限次
+	}
+	defer rdb.Del(ctx, lockKey)
+
+	var u User
+	if err := db.QueryRowContext(ctx, "SELECT id,name FROM users WHERE id=?", id).Scan(&u.ID, &u.Name); err != nil {
+		// 缓存空值防穿透
+		rdb.Set(ctx, key, "", time.Minute)
+		return nil, err
+	}
+	b, _ := json.Marshal(u)
+	// 过期时间加随机抖动，防雪崩
+	rdb.Set(ctx, key, b, 10*time.Minute+time.Duration(rand.Intn(120))*time.Second)
+	return &u, nil
 }
 ```
 
-### 2.2 ORM框架
+### 3.3 缓存模式
 
-GORM是一个流行的Go语言ORM框架。
+- **Cache-Aside（旁路缓存，最常用）**：读时先查缓存、未命中查库回填；写时**先更新库、再删缓存**。删除比更新缓存更安全（避免并发写导致脏数据）。
+- **Write-Through**：写库同时写缓存，一致性高、延迟略大。
+- **Write-Behind**：只写缓存，异步刷库，性能最高但有丢数据风险。
 
-**GORM基础**
+### 3.4 本地缓存与单飞
+
+进程内缓存避免网络开销，常用 `sync.Map`（简单）或 `bigcache`（大容量低 GC）。关键是解决"缓存失效时并发回源"，用 `singleflight` 合并请求：
 
 ```go
-package main
+import "golang.org/x/sync/singleflight"
 
-import (
-    "fmt"
-    "log"
-    "time"
-    
-    "gorm.io/driver/postgres"
-    "gorm.io/gorm"
-)
+var g singleflight.Group
 
-type Product struct {
-    ID        uint
-    Name      string
-    Price     float64
-    Stock     int
-    CreatedAt time.Time
-    UpdatedAt time.Time
-}
-
-func main() {
-    dsn := "host=localhost user=postgres dbname=test sslmode=disable"
-    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    err = db.AutoMigrate(&Product{})
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    product := Product{
-        Name:  "Laptop",
-        Price: 999.99,
-        Stock: 100,
-    }
-    
-    err = createProduct(db, &product)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    found, err := getProduct(db, product.ID)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Found product: %+v\n", found)
-}
-
-func createProduct(db *gorm.DB, product *Product) error {
-    return db.Create(product).Error
-}
-
-func getProduct(db *gorm.DB, id uint) (*Product, error) {
-    var product Product
-    err := db.First(&product, id).Error
-    return &product, err
-}
-
-func updateProduct(db *gorm.DB, product *Product) error {
-    return db.Save(product).Error
-}
-
-func deleteProduct(db *gorm.DB, id uint) error {
-    return db.Delete(&Product{}, id).Error
+func GetConfig(key string) (string, error) {
+	v, err, _ := g.Do(key, func() (interface{}, error) {
+		// 同一 key 的并发请求只执行一次
+		return loadFromDB(key)
+	})
+	if err != nil {
+		return "", err
+	}
+	return v.(string), nil
 }
 ```
 
-**关联关系**
+### 3.5 缓存一致性
+
+> **没有绝对强一致的缓存方案**，只有"可接受的一致性"。
+
+- 常用：Cache-Aside + 延迟双删（更新库后删缓存，延迟再删一次）。
+- 强一致要求高：直接读写 DB，不用缓存，或用 binlog 订阅（Canal）异步失效。
+- 记住一句话：**"先更新数据库，再删除缓存"**，而不是"更新缓存"。
+
+### 3.6 本章小结与面试题
+
+**要点回顾**：穿透靠空值/布隆过滤，击穿靠互斥重建，雪崩靠随机过期；缓存删除优先于更新；singleflight 解决并发回源。
+
+**面试题**：三大缓存问题及解法？先删缓存还是先更新库？如何保证缓存与数据库最终一致？本地缓存和分布式缓存的取舍？
+
+---
+
+## 第四章 消息队列集成
+
+### 4.1 为什么需要消息队列
+
+```mermaid
+flowchart LR
+    subgraph 同步调用
+      A1[订单服务] -->|HTTP| B1[库存服务]
+      A1 -->|HTTP| C1[积分服务]
+      A1 -->|HTTP| D1[通知服务]
+    end
+    subgraph 消息驱动
+      A2[订单服务] -->|发布事件| MQ[(消息队列)]
+      MQ --> B2[库存服务]
+      MQ --> C2[积分服务]
+      MQ --> D2[通知服务]
+    end
+```
+
+- **解耦**：生产者不用知道消费者是谁。
+- **削峰**：突发流量先入队，消费者按能力慢慢处理。
+- **异步**：非核心链路（发短信、写日志）不阻塞主流程。
+- **广播**：一个事件多方消费。
+
+### 4.2 Kafka 快速上手（segmentio/kafka-go）
+
+```bash
+docker run -d --name kafka -p 9092:9092 apache/kafka:latest
+```
 
 ```go
-type Order struct {
-    ID        uint
-    UserID    uint
-    Total     float64
-    Status    string
-    User      User      `gorm:"foreignKey:UserID"`
-    Items     []OrderItem `gorm:"foreignKey:OrderID"`
-    CreatedAt time.Time
-}
+import "github.com/segmentio/kafka-go"
 
-type OrderItem struct {
-    ID        uint
-    OrderID   uint
-    ProductID uint
-    Quantity  int
-    Price     float64
-    Order     Order   `gorm:"foreignKey:OrderID"`
-    Product   Product `gorm:"foreignKey:ProductID"`
+// 生产者
+w := &kafka.Writer{
+	Addr:     kafka.TCP("localhost:9092"),
+	Topic:    "order-created",
+	Balancer: &kafka.LeastBytes{},
 }
+defer w.Close()
 
-func createOrder(db *gorm.DB, order *Order) error {
-    return db.Transaction(func(tx *gorm.DB) error {
-        if err := tx.Create(order).Error; err != nil {
-            return err
-        }
-        
-        for i := range order.Items {
-            order.Items[i].OrderID = order.ID
-            if err := tx.Create(&order.Items[i]).Error; err != nil {
-                return err
-            }
-        }
-        
-        return nil
-    })
-}
+err := w.WriteMessages(ctx, kafka.Message{
+	Key:   []byte("order-1001"),
+	Value: []byte(`{"order_id":1001,"amount":99.9}`),
+})
 
-func getOrderWithItems(db *gorm.DB, id uint) (*Order, error) {
-    var order Order
-    err := db.Preload("Items").Preload("Items.Product").First(&order, id).Error
-    return &order, err
+// 消费者
+r := kafka.NewReader(kafka.ReaderConfig{
+	Brokers:  []string{"localhost:9092"},
+	Topic:    "order-created",
+	GroupID:  "order-consumer", // 同组消费分摊，不同组各自全量消费
+	MinBytes: 1,
+	MaxBytes: 10e6,
+})
+defer r.Close()
+
+for {
+	m, err := r.ReadMessage(ctx)
+	if err != nil {
+		break
+	}
+	log.Printf("收到: key=%s value=%s", m.Key, m.Value)
+	// 业务处理成功后提交 offset（这里用 ReadMessage 自动提交）
 }
 ```
 
-### 2.3 连接池
+### 4.3 消息可靠性三件套
 
-连接池管理数据库连接，提高性能。
+| 目标 | 手段 |
+|---|---|
+| 不丢 | 生产者 acks=all + 重试；消费者**处理成功后再提交 offset** |
+| 不重 | 消费端**幂等**（唯一键去重、状态机、Redis SETNX） |
+| 有序 | 同一业务 key（如 order_id）进同一分区 |
 
-**配置连接池**
+**幂等消费示例**：
 
 ```go
-func setupDB(dsn string) (*sql.DB, error) {
-    db, err := sql.Open("postgres", dsn)
-    if err != nil {
-        return nil, err
-    }
-    
-    db.SetMaxOpenConns(25)
-    db.SetMaxIdleConns(25)
-    db.SetConnMaxLifetime(5 * time.Minute)
-    db.SetConnMaxIdleTime(5 * time.Minute)
-    
-    if err := db.Ping(); err != nil {
-        return nil, err
-    }
-    
-    return db, nil
+func handleOrderCreated(ctx context.Context, rdb *redis.Client, msg kafka.Message) error {
+	// 用消息唯一键做去重
+	key := "idem:" + string(msg.Key) + ":" + strconv.FormatInt(msg.Offset, 10)
+	ok, _ := rdb.SetNX(ctx, key, 1, 24*time.Hour).Result()
+	if !ok {
+		return nil // 已处理过，直接跳过
+	}
+	return processOrder(ctx, msg.Value)
 }
 ```
 
-**连接池监控**
+> ⚠️ 顺序：**先处理业务、再提交 offset、最后（或同事务）记录幂等键**。若先提交 offset 再处理业务，中间崩溃就会丢消息。
+
+### 4.4 本章小结与面试题
+
+**要点回顾**：MQ 解决解耦/削峰/异步；不丢靠 ack + 手动提交；不重靠幂等；有序靠分区键。
+
+**面试题**：Kafka 为什么快？如何保证不丢消息？消息重复消费如何解决？消费者组的作用？Kafka 与 RabbitMQ 如何选型？
+
+---
+
+## 第五章 配置、日志与可观测性
+
+### 5.1 配置管理：环境变量 + Viper
+
+十二要素应用（12-Factor）原则：**配置与代码分离，通过环境变量注入**。Viper 支持多来源合并：
 
 ```go
-type DBStats struct {
-    MaxOpenConnections int
-    OpenConnections   int
-    InUse             int
-    Idle              int
-    WaitCount         int64
-    WaitDuration      time.Duration
-    MaxIdleClosed     int64
-    MaxLifetimeClosed int64
-}
-
-func getDBStats(db *sql.DB) DBStats {
-    stats := db.Stats()
-    return DBStats{
-        MaxOpenConnections: stats.MaxOpenConnections,
-        OpenConnections:    stats.OpenConnections,
-        InUse:             stats.InUse,
-        Idle:              stats.Idle,
-        WaitCount:         stats.WaitCount,
-        WaitDuration:      stats.WaitDuration,
-        MaxIdleClosed:     stats.MaxIdleClosed,
-        MaxLifetimeClosed: stats.MaxLifetimeClosed,
-    }
-}
-```
-
-### 2.4 事务处理
-
-事务确保数据一致性。
-
-**基本事务**
-
-```go
-func transferMoney(db *sql.DB, fromID, toID int, amount float64) error {
-    tx, err := db.Begin()
-    if err != nil {
-        return err
-    }
-    
-    defer func() {
-        if err != nil {
-            tx.Rollback()
-        }
-    }()
-    
-    _, err = tx.Exec(`UPDATE accounts SET balance = balance - $1 WHERE id = $2`, amount, fromID)
-    if err != nil {
-        return err
-    }
-    
-    _, err = tx.Exec(`UPDATE accounts SET balance = balance + $1 WHERE id = $2`, amount, toID)
-    if err != nil {
-        return err
-    }
-    
-    return tx.Commit()
-}
-```
-
-**GORM事务**
-
-```go
-func transferMoneyGORM(db *gorm.DB, fromID, toID uint, amount float64) error {
-    return db.Transaction(func(tx *gorm.DB) error {
-        var fromAccount, toAccount Account
-        
-        if err := tx.First(&fromAccount, fromID).Error; err != nil {
-            return err
-        }
-        
-        if err := tx.First(&toAccount, toID).Error; err != nil {
-            return err
-        }
-        
-        if fromAccount.Balance < amount {
-            return errors.New("insufficient balance")
-        }
-        
-        fromAccount.Balance -= amount
-        toAccount.Balance += amount
-        
-        if err := tx.Save(&fromAccount).Error; err != nil {
-            return err
-        }
-        
-        if err := tx.Save(&toAccount).Error; err != nil {
-            return err
-        }
-        
-        return nil
-    })
-}
-```
-
-### 2.5 小结
-
-本章介绍了Go语言的数据库集成，包括SQL数据库、ORM框架、连接池、事务处理等。我们学习了Go语言如何使用database/sql包操作数据库、使用GORM进行ORM操作、配置连接池、处理事务等。掌握好Go语言的数据库集成对于构建数据驱动的应用程序非常重要。
-
-下一章我们将学习Go语言的缓存集成，包括Redis、Memcached、本地缓存等，以及它们的使用方法和注意事项。
-
-## 第三章：缓存集成
-
-### 3.1 Redis缓存
-
-Redis是一个高性能的键值存储系统，常用于缓存。
-
-**基本Redis操作**
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    "time"
-    
-    "github.com/redis/go-redis/v9"
-)
-
-type RedisCache struct {
-    client *redis.Client
-}
-
-func NewRedisCache(addr string) *RedisCache {
-    rdb := redis.NewClient(&redis.Options{
-        Addr:     addr,
-        Password: "",
-        DB:       0,
-    })
-    
-    return &RedisCache{client: rdb}
-}
-
-func (rc *RedisCache) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
-    return rc.client.Set(ctx, key, value, expiration).Err()
-}
-
-func (rc *RedisCache) Get(ctx context.Context, key string) (string, error) {
-    return rc.client.Get(ctx, key).Result()
-}
-
-func (rc *RedisCache) Delete(ctx context.Context, keys ...string) error {
-    return rc.client.Del(ctx, keys...).Err()
-}
-
-func (rc *RedisCache) Exists(ctx context.Context, keys ...string) (int64, error) {
-    return rc.client.Exists(ctx, keys...).Result()
-}
-
-func (rc *RedisCache) SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
-    return rc.client.SetNX(ctx, key, value, expiration).Result()
-}
-
-func main() {
-    cache := NewRedisCache("localhost:6379")
-    ctx := context.Background()
-    
-    err := cache.Set(ctx, "user:1", "John Doe", time.Hour)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    value, err := cache.Get(ctx, "user:1")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Cached value: %s\n", value)
-}
-```
-
-**Redis哈希操作**
-
-```go
-func (rc *RedisCache) HSet(ctx context.Context, key, field string, value interface{}) error {
-    return rc.client.HSet(ctx, key, field, value).Err()
-}
-
-func (rc *RedisCache) HGet(ctx context.Context, key, field string) (string, error) {
-    return rc.client.HGet(ctx, key, field).Result()
-}
-
-func (rc *RedisCache) HGetAll(ctx context.Context, key string) (map[string]string, error) {
-    return rc.client.HGetAll(ctx, key).Result()
-}
-
-func (rc *RedisCache) HDel(ctx context.Context, key string, fields ...string) error {
-    return rc.client.HDel(ctx, key, fields...).Err()
-}
-
-func (rc *RedisCache) HExists(ctx context.Context, key, field string) (bool, error) {
-    return rc.client.HExists(ctx, key, field).Result()
-}
-```
-
-**Redis列表操作**
-
-```go
-func (rc *RedisCache) LPush(ctx context.Context, key string, values ...interface{}) error {
-    return rc.client.LPush(ctx, key, values...).Err()
-}
-
-func (rc *RedisCache) RPush(ctx context.Context, key string, values ...interface{}) error {
-    return rc.client.RPush(ctx, key, values...).Err()
-}
-
-func (rc *RedisCache) LPop(ctx context.Context, key string) (string, error) {
-    return rc.client.LPop(ctx, key).Result()
-}
-
-func (rc *RedisCache) RPop(ctx context.Context, key string) (string, error) {
-    return rc.client.RPop(ctx, key).Result()
-}
-
-func (rc *RedisCache) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
-    return rc.client.LRange(ctx, key, start, stop).Result()
-}
-
-func (rc *RedisCache) LLen(ctx context.Context, key string) (int64, error) {
-    return rc.client.LLen(ctx, key).Result()
-}
-```
-
-### 3.2 Memcached缓存
-
-Memcached是一个高性能的分布式内存对象缓存系统。
-
-**基本Memcached操作**
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-    "time"
-    
-    "github.com/bradfitz/gomemcache/memcache"
-)
-
-type MemcachedCache struct {
-    client *memcache.Client
-}
-
-func NewMemcachedCache(servers []string) *MemcachedCache {
-    return &MemcachedCache{
-        client: memcache.New(servers...),
-    }
-}
-
-func (mc *MemcachedCache) Set(key string, value []byte, expiration int32) error {
-    item := &memcache.Item{
-        Key:        key,
-        Value:      value,
-        Expiration: expiration,
-    }
-    return mc.client.Set(item)
-}
-
-func (mc *MemcachedCache) Get(key string) ([]byte, error) {
-    item, err := mc.client.Get(key)
-    if err != nil {
-        return nil, err
-    }
-    return item.Value, nil
-}
-
-func (mc *MemcachedCache) Delete(key string) error {
-    return mc.client.Delete(key)
-}
-
-func (mc *MemcachedCache) DeleteAll() error {
-    return mc.client.DeleteAll()
-}
-
-func main() {
-    cache := NewMemcachedCache([]string{"localhost:11211"})
-    
-    err := cache.Set("user:1", []byte("John Doe"), 3600)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    value, err := cache.Get("user:1")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Printf("Cached value: %s\n", string(value))
-}
-```
-
-### 3.3 本地缓存
-
-本地缓存使用内存存储数据，速度最快。
-
-**简单本地缓存**
-
-```go
-package main
-
-import (
-    "sync"
-    "time"
-)
-
-type LocalCache struct {
-    items map[string]*cacheItem
-    mu    sync.RWMutex
-}
-
-type cacheItem struct {
-    value      interface{}
-    expiration int64
-}
-
-func NewLocalCache() *LocalCache {
-    lc := &LocalCache{
-        items: make(map[string]*cacheItem),
-    }
-    go lc.cleanup()
-    return lc
-}
-
-func (lc *LocalCache) Set(key string, value interface{}, ttl time.Duration) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    
-    var expiration int64
-    if ttl > 0 {
-        expiration = time.Now().Add(ttl).UnixNano()
-    }
-    
-    lc.items[key] = &cacheItem{
-        value:      value,
-        expiration: expiration,
-    }
-}
-
-func (lc *LocalCache) Get(key string) (interface{}, bool) {
-    lc.mu.RLock()
-    defer lc.mu.RUnlock()
-    
-    item, ok := lc.items[key]
-    if !ok {
-        return nil, false
-    }
-    
-    if item.expiration > 0 && time.Now().UnixNano() > item.expiration {
-        return nil, false
-    }
-    
-    return item.value, true
-}
-
-func (lc *LocalCache) Delete(key string) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    
-    delete(lc.items, key)
-}
-
-func (lc *LocalCache) cleanup() {
-    ticker := time.NewTicker(time.Minute)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        lc.mu.Lock()
-        now := time.Now().UnixNano()
-        for key, item := range lc.items {
-            if item.expiration > 0 && now > item.expiration {
-                delete(lc.items, key)
-            }
-        }
-        lc.mu.Unlock()
-    }
-}
-```
-
-**LRU缓存**
-
-```go
-package main
-
-import (
-    "container/list"
-    "sync"
-)
-
-type LRUCache struct {
-    capacity int
-    items    map[string]*list.Element
-    list     *list.List
-    mu       sync.Mutex
-}
-
-type cacheEntry struct {
-    key   string
-    value interface{}
-}
-
-func NewLRUCache(capacity int) *LRUCache {
-    return &LRUCache{
-        capacity: capacity,
-        items:    make(map[string]*list.Element),
-        list:     list.New(),
-    }
-}
-
-func (lc *LRUCache) Get(key string) (interface{}, bool) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    
-    if elem, ok := lc.items[key]; ok {
-        lc.list.MoveToFront(elem)
-        return elem.Value.(*cacheEntry).value, true
-    }
-    
-    return nil, false
-}
-
-func (lc *LRUCache) Set(key string, value interface{}) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    
-    if elem, ok := lc.items[key]; ok {
-        lc.list.MoveToFront(elem)
-        elem.Value.(*cacheEntry).value = value
-        return
-    }
-    
-    if lc.list.Len() >= lc.capacity {
-        oldest := lc.list.Back()
-        if oldest != nil {
-            lc.list.Remove(oldest)
-            delete(lc.items, oldest.Value.(*cacheEntry).key)
-        }
-    }
-    
-    elem := lc.list.PushFront(&cacheEntry{key: key, value: value})
-    lc.items[key] = elem
-}
-
-func (lc *LRUCache) Delete(key string) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    
-    if elem, ok := lc.items[key]; ok {
-        lc.list.Remove(elem)
-        delete(lc.items, key)
-    }
-}
-```
-
-### 3.4 缓存模式
-
-**缓存穿透**
-
-```go
-func (s *UserService) GetUserWithCache(id string) (*User, error) {
-    cacheKey := fmt.Sprintf("user:%s", id)
-    
-    if cached, ok := s.cache.Get(cacheKey); ok {
-        if cached == nil {
-            return nil, nil
-        }
-        return cached.(*User), nil
-    }
-    
-    user, err := s.repo.FindByID(id)
-    if err != nil {
-        return nil, err
-    }
-    
-    if user == nil {
-        s.cache.Set(cacheKey, nil, 5*time.Minute)
-        return nil, nil
-    }
-    
-    s.cache.Set(cacheKey, user, time.Hour)
-    return user, nil
-}
-```
-
-**缓存击穿**
-
-```go
-func (s *UserService) GetUserWithLock(id string) (*User, error) {
-    cacheKey := fmt.Sprintf("user:%s", id)
-    
-    if cached, ok := s.cache.Get(cacheKey); ok {
-        return cached.(*User), nil
-    }
-    
-    lockKey := fmt.Sprintf("lock:%s", id)
-    locked, err := s.cache.SetNX(lockKey, "1", 10*time.Second)
-    if err != nil {
-        return nil, err
-    }
-    
-    if locked {
-        defer s.cache.Delete(lockKey)
-        
-        user, err := s.repo.FindByID(id)
-        if err != nil {
-            return nil, err
-        }
-        
-        s.cache.Set(cacheKey, user, time.Hour)
-        return user, nil
-    }
-    
-    time.Sleep(100 * time.Millisecond)
-    return s.GetUserWithLock(id)
-}
-```
-
-**缓存雪崩**
-
-```go
-func (s *UserService) GetUserWithRandomTTL(id string) (*User, error) {
-    cacheKey := fmt.Sprintf("user:%s", id)
-    
-    if cached, ok := s.cache.Get(cacheKey); ok {
-        return cached.(*User), nil
-    }
-    
-    user, err := s.repo.FindByID(id)
-    if err != nil {
-        return nil, err
-    }
-    
-    ttl := time.Hour + time.Duration(rand.Intn(300))*time.Second
-    s.cache.Set(cacheKey, user, ttl)
-    return user, nil
-}
-```
-
-### 3.5 小结
-
-本章介绍了Go语言的缓存集成，包括Redis缓存、Memcached缓存、本地缓存、缓存模式等。我们学习了Go语言如何使用Redis进行缓存、使用Memcached进行缓存、实现本地缓存、处理缓存穿透、缓存击穿、缓存雪崩等问题。掌握好Go语言的缓存集成对于提高应用程序性能非常重要。
-
-下一章我们将学习Go语言的更多中间件，包括限流、压缩、超时、重试等，以及它们的使用方法和注意事项。
-
-## 第四章：更多中间件
-
-### 4.1 限流中间件
-
-限流中间件用于控制请求速率，防止系统过载。
-
-**令牌桶限流**
-
-```go
-package main
-
-import (
-    "net/http"
-    "sync"
-    "time"
-)
-
-type TokenBucket struct {
-    capacity int
-    tokens   int
-    rate     int
-    mu       sync.Mutex
-    lastTime time.Time
-}
-
-func NewTokenBucket(capacity, rate int) *TokenBucket {
-    return &TokenBucket{
-        capacity: capacity,
-        tokens:   capacity,
-        rate:     rate,
-        lastTime: time.Now(),
-    }
-}
-
-func (tb *TokenBucket) Allow() bool {
-    tb.mu.Lock()
-    defer tb.mu.Unlock()
-    
-    now := time.Now()
-    elapsed := now.Sub(tb.lastTime).Seconds()
-    
-    tb.tokens += int(elapsed * float64(tb.rate))
-    if tb.tokens > tb.capacity {
-        tb.tokens = tb.capacity
-    }
-    
-    tb.lastTime = now
-    
-    if tb.tokens > 0 {
-        tb.tokens--
-        return true
-    }
-    
-    return false
-}
-
-func rateLimitMiddleware(tb *TokenBucket) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            if !tb.Allow() {
-                http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-                return
-            }
-            next.ServeHTTP(w, r)
-        })
-    }
-}
-
-func main() {
-    tb := NewTokenBucket(100, 10)
-    
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Data"))
-    })
-
-    handler := rateLimitMiddleware(tb)(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-**滑动窗口限流**
-
-```go
-type SlidingWindow struct {
-    windowSize time.Duration
-    maxCount   int
-    requests   []time.Time
-    mu         sync.Mutex
-}
-
-func NewSlidingWindow(windowSize time.Duration, maxCount int) *SlidingWindow {
-    return &SlidingWindow{
-        windowSize: windowSize,
-        maxCount:   maxCount,
-        requests:   make([]time.Time, 0),
-    }
-}
-
-func (sw *SlidingWindow) Allow() bool {
-    sw.mu.Lock()
-    defer sw.mu.Unlock()
-    
-    now := time.Now()
-    cutoff := now.Add(-sw.windowSize)
-    
-    for i, t := range sw.requests {
-        if t.After(cutoff) {
-            sw.requests = sw.requests[i:]
-            break
-        }
-    }
-    
-    if len(sw.requests) >= sw.maxCount {
-        return false
-    }
-    
-    sw.requests = append(sw.requests, now)
-    return true
-}
-```
-
-### 4.2 压缩中间件
-
-压缩中间件用于压缩响应数据，减少网络传输。
-
-**Gzip压缩**
-
-```go
-package main
-
-import (
-    "compress/gzip"
-    "net/http"
-    "strings"
-)
-
-type gzipResponseWriter struct {
-    http.ResponseWriter
-    writer *gzip.Writer
-}
-
-func (gzw *gzipResponseWriter) Write(b []byte) (int, error) {
-    return gzw.writer.Write(b)
-}
-
-func (gzw *gzipResponseWriter) Close() error {
-    return gzw.writer.Close()
-}
-
-func gzipMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-            next.ServeHTTP(w, r)
-            return
-        }
-        
-        w.Header().Set("Content-Encoding", "gzip")
-        
-        gz := gzip.NewWriter(w)
-        defer gz.Close()
-        
-        gzw := &gzipResponseWriter{ResponseWriter: w, writer: gz}
-        next.ServeHTTP(gzw, r)
-    })
-}
-
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        w.Write([]byte(`{"message": "Hello, World!"}`))
-    })
-
-    handler := gzipMiddleware(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 4.3 超时中间件
-
-超时中间件用于设置请求超时时间。
-
-**请求超时**
-
-```go
-package main
-
-import (
-    "context"
-    "net/http"
-    "time"
-)
-
-func timeoutMiddleware(timeout time.Duration) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            ctx, cancel := context.WithTimeout(r.Context(), timeout)
-            defer cancel()
-            
-            done := make(chan struct{})
-            
-            go func() {
-                next.ServeHTTP(w, r.WithContext(ctx))
-                close(done)
-            }()
-            
-            select {
-            case <-done:
-                return
-            case <-ctx.Done():
-                http.Error(w, "Request timeout", http.StatusRequestTimeout)
-            }
-        })
-    }
-}
-
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        time.Sleep(2 * time.Second)
-        w.Write([]byte("Data"))
-    })
-
-    handler := timeoutMiddleware(1 * time.Second)(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 4.4 重试中间件
-
-重试中间件用于在请求失败时自动重试。
-
-**指数退避重试**
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "net/http"
-    "time"
-)
-
-type RetryConfig struct {
-    MaxRetries int
-    InitialDelay time.Duration
-    MaxDelay     time.Duration
-}
-
-func exponentialBackoff(attempt int, config RetryConfig) time.Duration {
-    delay := config.InitialDelay * time.Duration(1<<uint(attempt))
-    if delay > config.MaxDelay {
-        delay = config.MaxDelay
-    }
-    return delay
-}
-
-func retryMiddleware(config RetryConfig) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            var lastErr error
-            
-            for attempt := 0; attempt <= config.MaxRetries; attempt++ {
-                if attempt > 0 {
-                    delay := exponentialBackoff(attempt-1, config)
-                    time.Sleep(delay)
-                }
-                
-                rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-                next.ServeHTTP(rw, r)
-                
-                if rw.statusCode < 500 {
-                    return
-                }
-                
-                lastErr = fmt.Errorf("request failed with status %d", rw.statusCode)
-            }
-            
-            http.Error(w, lastErr.Error(), http.StatusServiceUnavailable)
-        })
-    }
-}
-
-type responseWriter struct {
-    http.ResponseWriter
-    statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-    rw.statusCode = code
-    rw.ResponseWriter.WriteHeader(code)
-}
-
-func main() {
-    config := RetryConfig{
-        MaxRetries:   3,
-        InitialDelay: 100 * time.Millisecond,
-        MaxDelay:     5 * time.Second,
-    }
-    
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Data"))
-    })
-
-    handler := retryMiddleware(config)(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 4.5 熔断中间件
-
-熔断中间件用于在服务不可用时快速失败。
-
-**熔断器实现**
-
-```go
-package main
-
-import (
-    "net/http"
-    "sync"
-    "time"
-)
-
-type CircuitState int
-
-const (
-    StateClosed CircuitState = iota
-    StateOpen
-    StateHalfOpen
-)
-
-type CircuitBreaker struct {
-    mu                sync.Mutex
-    state             CircuitState
-    failureCount      int
-    failureThreshold  int
-    successThreshold  int
-    timeout           time.Duration
-    lastFailureTime   time.Time
-}
-
-func NewCircuitBreaker(failureThreshold, successThreshold int, timeout time.Duration) *CircuitBreaker {
-    return &CircuitBreaker{
-        state:            StateClosed,
-        failureThreshold: failureThreshold,
-        successThreshold: successThreshold,
-        timeout:          timeout,
-    }
-}
-
-func (cb *CircuitBreaker) Allow() bool {
-    cb.mu.Lock()
-    defer cb.mu.Unlock()
-    
-    switch cb.state {
-    case StateClosed:
-        return true
-    case StateOpen:
-        if time.Since(cb.lastFailureTime) > cb.timeout {
-            cb.state = StateHalfOpen
-            return true
-        }
-        return false
-    case StateHalfOpen:
-        return true
-    default:
-        return false
-    }
-}
-
-func (cb *CircuitBreaker) RecordSuccess() {
-    cb.mu.Lock()
-    defer cb.mu.Unlock()
-    
-    cb.failureCount = 0
-    
-    if cb.state == StateHalfOpen {
-        cb.state = StateClosed
-    }
-}
-
-func (cb *CircuitBreaker) RecordFailure() {
-    cb.mu.Lock()
-    defer cb.mu.Unlock()
-    
-    cb.failureCount++
-    cb.lastFailureTime = time.Now()
-    
-    if cb.failureCount >= cb.failureThreshold {
-        cb.state = StateOpen
-    }
-}
-
-func circuitBreakerMiddleware(cb *CircuitBreaker) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            if !cb.Allow() {
-                http.Error(w, "Circuit breaker is open", http.StatusServiceUnavailable)
-                return
-            }
-            
-            rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-            next.ServeHTTP(rw, r)
-            
-            if rw.statusCode >= 500 {
-                cb.RecordFailure()
-            } else {
-                cb.RecordSuccess()
-            }
-        })
-    }
-}
-
-func main() {
-    cb := NewCircuitBreaker(5, 3, 30*time.Second)
-    
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Data"))
-    })
-
-    handler := circuitBreakerMiddleware(cb)(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 4.6 小结
-
-本章介绍了Go语言的更多中间件，包括限流中间件、压缩中间件、超时中间件、重试中间件、熔断中间件等。我们学习了Go语言如何实现令牌桶限流、滑动窗口限流、Gzip压缩、请求超时、指数退避重试、熔断器等。掌握好Go语言的这些中间件对于构建高可用、高性能的HTTP服务非常重要。
-
-下一章我们将学习Go语言的消息队列集成，包括RabbitMQ、Kafka等，以及它们的使用方法和注意事项。
-
-## 第五章：消息队列集成
-
-### 5.1 RabbitMQ
-
-RabbitMQ是一个开源的消息代理，支持多种消息协议。
-
-**基本RabbitMQ操作**
-
-```go
-package main
-
-import (
-    "log"
-    
-    amqp "github.com/rabbitmq/amqp091-go"
-)
-
-type RabbitMQClient struct {
-    conn *amqp.Connection
-    ch   *amqp.Channel
-}
-
-func NewRabbitMQClient(url string) (*RabbitMQClient, error) {
-    conn, err := amqp.Dial(url)
-    if err != nil {
-        return nil, err
-    }
-    
-    ch, err := conn.Channel()
-    if err != nil {
-        conn.Close()
-        return nil, err
-    }
-    
-    return &RabbitMQClient{conn: conn, ch: ch}, nil
-}
-
-func (c *RabbitMQClient) Close() error {
-    if c.ch != nil {
-        c.ch.Close()
-    }
-    if c.conn != nil {
-        return c.conn.Close()
-    }
-    return nil
-}
-
-func (c *RabbitMQClient) DeclareQueue(name string) (amqp.Queue, error) {
-    return c.ch.QueueDeclare(
-        name,
-        true,
-        false,
-        false,
-        false,
-        nil,
-    )
-}
-
-func (c *RabbitMQClient) Publish(queue string, body []byte) error {
-    return c.ch.Publish(
-        "",
-        queue,
-        false,
-        false,
-        amqp.Publishing{
-            ContentType: "text/plain",
-            Body:        body,
-        },
-    )
-}
-
-func (c *RabbitMQClient) Consume(queue string) (<-chan amqp.Delivery, error) {
-    return c.ch.Consume(
-        queue,
-        "",
-        true,
-        false,
-        false,
-        false,
-        nil,
-    )
-}
-
-func main() {
-    client, err := NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-    
-    queue, err := client.DeclareQueue("hello")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    err = client.Publish(queue.Name, []byte("Hello, RabbitMQ!"))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    msgs, err := client.Consume(queue.Name)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for msg := range msgs {
-        log.Printf("Received: %s", msg.Body)
-    }
-}
-```
-
-**工作队列**
-
-```go
-func (c *RabbitMQClient) PublishTask(queue string, task []byte) error {
-    return c.ch.Publish(
-        "",
-        queue,
-        false,
-        false,
-        amqp.Publishing{
-            ContentType: "text/plain",
-            Body:        task,
-        DeliveryMode: amqp.Persistent,
-        },
-    )
-}
-
-func (c *RabbitMQClient) SetQos(prefetchCount int) error {
-    return c.ch.Qos(
-        prefetchCount,
-        0,
-        false,
-    )
-}
-
-func worker() {
-    client, err := NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-    
-    queue, err := client.DeclareQueue("task_queue")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    err = client.SetQos(1)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    msgs, err := client.Consume(queue.Name)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for msg := range msgs {
-        log.Printf("Processing task: %s", msg.Body)
-        
-        time.Sleep(2 * time.Second)
-        
-        log.Printf("Task completed: %s", msg.Body)
-    }
-}
-```
-
-**发布订阅**
-
-```go
-func (c *RabbitMQClient) DeclareExchange(name, kind string) error {
-    return c.ch.ExchangeDeclare(
-        name,
-        kind,
-        true,
-        false,
-        false,
-        false,
-        nil,
-    )
-}
-
-func (c *RabbitMQClient) PublishToExchange(exchange string, body []byte) error {
-    return c.ch.Publish(
-        exchange,
-        "",
-        false,
-        false,
-        amqp.Publishing{
-            ContentType: "text/plain",
-            Body:        body,
-        },
-    )
-}
-
-func (c *RabbitMQClient) BindQueue(queue, exchange string) error {
-    return c.ch.QueueBind(
-        queue,
-        "",
-        exchange,
-        false,
-        nil,
-    )
-}
-
-func publisher() {
-    client, err := NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-    
-    err = client.DeclareExchange("logs", "fanout")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    err = client.PublishToExchange("logs", []byte("Hello, World!"))
-    if err != nil {
-        log.Fatal(err)
-    }
-}
-
-func subscriber() {
-    client, err := NewRabbitMQClient("amqp://guest:guest@localhost:5672/")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-    
-    err = client.DeclareExchange("logs", "fanout")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    queue, err := client.DeclareQueue("")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    err = client.BindQueue(queue.Name, "logs")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    msgs, err := client.Consume(queue.Name)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for msg := range msgs {
-        log.Printf("Received: %s", msg.Body)
-    }
-}
-```
-
-### 5.2 Kafka
-
-Kafka是一个分布式流处理平台，用于处理实时数据流。
-
-**基本Kafka操作**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    
-    "github.com/segmentio/kafka-go"
-)
-
-type KafkaProducer struct {
-    writer *kafka.Writer
-}
-
-func NewKafkaProducer(brokers []string, topic string) *KafkaProducer {
-    return &KafkaProducer{
-        writer: &kafka.Writer{
-            Addr:     kafka.TCP(brokers...),
-            Topic:    topic,
-            Balancer: &kafka.LeastBytes{},
-        },
-    }
-}
-
-func (p *KafkaProducer) Produce(ctx context.Context, key, value []byte) error {
-    return p.writer.WriteMessages(ctx, kafka.Message{
-        Key:   key,
-        Value: value,
-    })
-}
-
-func (p *KafkaProducer) Close() error {
-    return p.writer.Close()
-}
-
-type KafkaConsumer struct {
-    reader *kafka.Reader
-}
-
-func NewKafkaConsumer(brokers []string, topic, groupID string) *KafkaConsumer {
-    return &KafkaConsumer{
-        reader: kafka.NewReader(kafka.ReaderConfig{
-            Brokers:  brokers,
-            Topic:    topic,
-            GroupID:  groupID,
-            MinBytes: 10e3,
-            MaxBytes: 10e6,
-        }),
-    }
-}
-
-func (c *KafkaConsumer) Consume(ctx context.Context) (kafka.Message, error) {
-    return c.reader.ReadMessage(ctx)
-}
-
-func (c *KafkaConsumer) Close() error {
-    return c.reader.Close()
-}
-
-func main() {
-    producer := NewKafkaProducer([]string{"localhost:9092"}, "test-topic")
-    defer producer.Close()
-    
-    err := producer.Produce(context.Background(), []byte("key"), []byte("Hello, Kafka!"))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    consumer := NewKafkaConsumer([]string{"localhost:9092"}, "test-topic", "test-group")
-    defer consumer.Close()
-    
-    for {
-        msg, err := consumer.Consume(context.Background())
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        log.Printf("Received: key=%s, value=%s", string(msg.Key), string(msg.Value))
-    }
-}
-```
-
-**Kafka分区**
-
-```go
-func (p *KafkaProducer) ProduceToPartition(ctx context.Context, partition int, key, value []byte) error {
-    return p.writer.WriteMessages(ctx, kafka.Message{
-        Partition: partition,
-        Key:      key,
-        Value:    value,
-    })
-}
-
-func (c *KafkaConsumer) ConsumePartition(ctx context.Context, partition int) (kafka.Message, error) {
-    return c.reader.ReadMessage(ctx)
-}
-```
-
-### 5.3 消息模式
-
-**发布订阅模式**
-
-```go
-type EventBus struct {
-    subscribers map[string][]chan []byte
-    mu          sync.RWMutex
-}
-
-func NewEventBus() *EventBus {
-    return &EventBus{
-        subscribers: make(map[string][]chan []byte),
-    }
-}
-
-func (eb *EventBus) Subscribe(topic string) chan []byte {
-    eb.mu.Lock()
-    defer eb.mu.Unlock()
-    
-    ch := make(chan []byte, 100)
-    eb.subscribers[topic] = append(eb.subscribers[topic], ch)
-    return ch
-}
-
-func (eb *EventBus) Publish(topic string, message []byte) {
-    eb.mu.RLock()
-    defer eb.mu.RUnlock()
-    
-    for _, ch := range eb.subscribers[topic] {
-        select {
-        case ch <- message:
-        default:
-            log.Printf("Channel full, dropping message")
-        }
-    }
-}
-
-func (eb *EventBus) Unsubscribe(topic string, ch chan []byte) {
-    eb.mu.Lock()
-    defer eb.mu.Unlock()
-    
-    subscribers := eb.subscribers[topic]
-    for i, subscriber := range subscribers {
-        if subscriber == ch {
-            eb.subscribers[topic] = append(subscribers[:i], subscribers[i+1:]...)
-            break
-        }
-    }
-}
-```
-
-**请求响应模式**
-
-```go
-type RPCClient struct {
-    conn    *amqp.Connection
-    ch      *amqp.Channel
-    replyTo string
-    chMap   map[string]chan []byte
-    mu      sync.Mutex
-}
-
-func NewRPCClient(url string) (*RPCClient, error) {
-    conn, err := amqp.Dial(url)
-    if err != nil {
-        return nil, err
-    }
-    
-    ch, err := conn.Channel()
-    if err != nil {
-        conn.Close()
-        return nil, err
-    }
-    
-    queue, err := ch.QueueDeclare("", false, false, true, false, nil)
-    if err != nil {
-        ch.Close()
-        conn.Close()
-        return nil, err
-    }
-    
-    return &RPCClient{
-        conn:    conn,
-        ch:      ch,
-        replyTo: queue.Name,
-        chMap:   make(map[string]chan []byte),
-    }, nil
-}
-
-func (c *RPCClient) Call(queue string, request []byte) ([]byte, error) {
-    corrID := generateUUID()
-    
-    replyCh := make(chan []byte, 1)
-    
-    c.mu.Lock()
-    c.chMap[corrID] = replyCh
-    c.mu.Unlock()
-    
-    defer func() {
-        c.mu.Lock()
-        delete(c.chMap, corrID)
-        c.mu.Unlock()
-    }()
-    
-    err := c.ch.Publish(
-        "",
-        queue,
-        false,
-        false,
-        amqp.Publishing{
-            ContentType:   "text/plain",
-            CorrelationId: corrID,
-            ReplyTo:       c.replyTo,
-            Body:          request,
-        },
-    )
-    
-    if err != nil {
-        return nil, err
-    }
-    
-    select {
-    case response := <-replyCh:
-        return response, nil
-    case <-time.After(5 * time.Second):
-        return nil, errors.New("timeout")
-    }
-}
-
-func (c *RPCClient) StartListening() error {
-    msgs, err := c.ch.Consume(c.replyTo, "", true, false, false, false, nil)
-    if err != nil {
-        return err
-    }
-    
-    go func() {
-        for msg := range msgs {
-            c.mu.Lock()
-            if ch, ok := c.chMap[msg.CorrelationId]; ok {
-                ch <- msg.Body
-            }
-            c.mu.Unlock()
-        }
-    }()
-    
-    return nil
-}
-```
-
-### 5.4 小结
-
-本章介绍了Go语言的消息队列集成，包括RabbitMQ、Kafka、消息模式等。我们学习了Go语言如何使用RabbitMQ进行消息传递、使用Kafka进行流处理、实现发布订阅模式、请求响应模式等。掌握好Go语言的消息队列集成对于构建分布式系统非常重要。
-
-下一章我们将学习Go语言的配置管理，包括环境变量、配置文件、配置中心等，以及它们的使用方法和注意事项。
-
-## 第六章：配置管理
-
-### 6.1 环境变量
-
-环境变量是配置管理的基础方式。
-
-**基本环境变量操作**
-
-```go
-package main
-
-import (
-    "fmt"
-    "os"
-    "strconv"
-)
-
-func getEnv(key, defaultValue string) string {
-    value := os.Getenv(key)
-    if value == "" {
-        return defaultValue
-    }
-    return value
-}
-
-func getEnvInt(key string, defaultValue int) int {
-    value := os.Getenv(key)
-    if value == "" {
-        return defaultValue
-    }
-    
-    intValue, err := strconv.Atoi(value)
-    if err != nil {
-        return defaultValue
-    }
-    
-    return intValue
-}
-
-func getEnvBool(key string, defaultValue bool) bool {
-    value := os.Getenv(key)
-    if value == "" {
-        return defaultValue
-    }
-    
-    boolValue, err := strconv.ParseBool(value)
-    if err != nil {
-        return defaultValue
-    }
-    
-    return boolValue
-}
+import "github.com/spf13/viper"
 
 type Config struct {
-    DatabaseURL string
-    Port        int
-    Debug       bool
+	Addr    string `mapstructure:"addr"`
+	DBDSN   string `mapstructure:"db_dsn"`
+	LogLvl  string `mapstructure:"log_level"`
 }
 
-func LoadConfig() *Config {
-    return &Config{
-        DatabaseURL: getEnv("DATABASE_URL", "postgres://localhost:5432/db"),
-        Port:        getEnvInt("PORT", 8080),
-        Debug:       getEnvBool("DEBUG", false),
-    }
-}
+func Load() (*Config, error) {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	viper.SetDefault("addr", ":8080")
+	viper.SetDefault("log_level", "info")
 
-func main() {
-    config := LoadConfig()
-    fmt.Printf("DatabaseURL: %s\n", config.DatabaseURL)
-    fmt.Printf("Port: %d\n", config.Port)
-    fmt.Printf("Debug: %v\n", config.Debug)
-}
-```
+	// 环境变量覆盖：APP_ADDR -> addr
+	viper.SetEnvPrefix("APP")
+	viper.AutomaticEnv()
 
-**使用Viper库**
-
-```go
-package main
-
-import (
-    "fmt"
-    "github.com/spf13/viper"
-)
-
-func LoadConfigWithViper() (*Config, error) {
-    viper.SetDefault("database.url", "postgres://localhost:5432/db")
-    viper.SetDefault("server.port", 8080)
-    viper.SetDefault("server.debug", false)
-    
-    viper.AutomaticEnv()
-    viper.SetEnvPrefix("APP")
-    viper.BindEnv("database.url", "DATABASE_URL")
-    viper.BindEnv("server.port", "PORT")
-    viper.BindEnv("server.debug", "DEBUG")
-    
-    config := &Config{}
-    if err := viper.Unmarshal(config); err != nil {
-        return nil, err
-    }
-    
-    return config, nil
+	if err := viper.ReadInConfig(); err != nil {
+		// 找不到文件不算致命，可能全靠环境变量
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, err
+		}
+	}
+	var cfg Config
+	return &cfg, viper.Unmarshal(&cfg)
 }
 ```
 
-### 6.2 配置文件
+**优先级（高 → 低）**：显式 Set > 环境变量 > 配置文件 > 默认值。
 
-配置文件提供更灵活的配置管理方式。
-
-**JSON配置文件**
+### 5.2 结构化日志与级别
 
 ```go
-package main
-
-import (
-    "encoding/json"
-    "os"
-)
-
-type Config struct {
-    Database struct {
-        URL string `json:"url"`
-    } `json:"database"`
-    Server struct {
-        Port  int  `json:"port"`
-        Debug bool `json:"debug"`
-    } `json:"server"`
-}
-
-func LoadConfigFromFile(filename string) (*Config, error) {
-    data, err := os.ReadFile(filename)
-    if err != nil {
-        return nil, err
-    }
-    
-    var config Config
-    if err := json.Unmarshal(data, &config); err != nil {
-        return nil, err
-    }
-    
-    return &config, nil
-}
-
-func SaveConfigToFile(filename string, config *Config) error {
-    data, err := json.MarshalIndent(config, "", "  ")
-    if err != nil {
-        return err
-    }
-    
-    return os.WriteFile(filename, data, 0644)
-}
+var level slog.Level
+_ = level.UnmarshalText([]byte(cfg.LogLvl)) // "debug"/"info"/"error"
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+slog.SetDefault(logger)
 ```
 
-**YAML配置文件**
+> 日志级别约定：`debug` 开发排查 / `info` 关键业务节点 / `warn` 可恢复异常 / `error` 需要人介入。**不要什么都打 error**，否则告警失灵。
+
+### 5.3 Prometheus 指标
+
+暴露 `/metrics`，让 Prometheus 定时拉取。
 
 ```go
-package main
-
 import (
-    "fmt"
-    "os"
-    
-    "gopkg.in/yaml.v2"
-)
-
-type Config struct {
-    Database struct {
-        URL string `yaml:"url"`
-    } `yaml:"database"`
-    Server struct {
-        Port  int  `yaml:"port"`
-        Debug bool `yaml:"debug"`
-    } `yaml:"server"`
-}
-
-func LoadConfigFromYAML(filename string) (*Config, error) {
-    data, err := os.ReadFile(filename)
-    if err != nil {
-        return nil, err
-    }
-    
-    var config Config
-    if err := yaml.Unmarshal(data, &config); err != nil {
-        return nil, err
-    }
-    
-    return &config, nil
-}
-
-func SaveConfigToYAML(filename string, config *Config) error {
-    data, err := yaml.Marshal(config)
-    if err != nil {
-        return err
-    }
-    
-    return os.WriteFile(filename, data, 0644)
-}
-
-func main() {
-    config := &Config{
-        Database: struct{ URL string }{URL: "postgres://localhost:5432/db"},
-        Server: struct {
-            Port  int
-            Debug bool
-        }{Port: 8080, Debug: false},
-    }
-    
-    err := SaveConfigToYAML("config.yaml", config)
-    if err != nil {
-        fmt.Printf("Error saving config: %v\n", err)
-        return
-    }
-    
-    loaded, err := LoadConfigFromYAML("config.yaml")
-    if err != nil {
-        fmt.Printf("Error loading config: %v\n", err)
-        return
-    }
-    
-    fmt.Printf("Loaded config: %+v\n", loaded)
-}
-```
-
-**TOML配置文件**
-
-```go
-package main
-
-import (
-    "fmt"
-    "os"
-    
-    "github.com/BurntSushi/toml"
-)
-
-type Config struct {
-    Database struct {
-        URL string `toml:"url"`
-    } `toml:"database"`
-    Server struct {
-        Port  int  `toml:"port"`
-        Debug bool `toml:"debug"`
-    } `toml:"server"`
-}
-
-func LoadConfigFromTOML(filename string) (*Config, error) {
-    data, err := os.ReadFile(filename)
-    if err != nil {
-        return nil, err
-    }
-    
-    var config Config
-    if _, err := toml.Decode(string(data), &config); err != nil {
-        return nil, err
-    }
-    
-    return &config, nil
-}
-
-func SaveConfigToTOML(filename string, config *Config) error {
-    file, err := os.Create(filename)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-    
-    return toml.NewEncoder(file).Encode(config)
-}
-```
-
-### 6.3 配置中心
-
-配置中心提供集中化的配置管理。
-
-**Etcd配置中心**
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    
-    "go.etcd.io/etcd/client/v3"
-)
-
-type EtcdConfig struct {
-    client *clientv3.Client
-}
-
-func NewEtcdConfig(endpoints []string) (*EtcdConfig, error) {
-    client, err := clientv3.New(clientv3.Config{
-        Endpoints:   endpoints,
-        DialTimeout: 5 * time.Second,
-    })
-    if err != nil {
-        return nil, err
-    }
-    
-    return &EtcdConfig{client: client}, nil
-}
-
-func (ec *EtcdConfig) Get(ctx context.Context, key string) (string, error) {
-    resp, err := ec.client.Get(ctx, key)
-    if err != nil {
-        return "", err
-    }
-    
-    if len(resp.Kvs) == 0 {
-        return "", fmt.Errorf("key not found")
-    }
-    
-    return string(resp.Kvs[0].Value), nil
-}
-
-func (ec *EtcdConfig) Set(ctx context.Context, key, value string) error {
-    _, err := ec.client.Put(ctx, key, value)
-    return err
-}
-
-func (ec *EtcdConfig) Watch(ctx context.Context, key string) <-chan string {
-    ch := make(chan string)
-    
-    watchChan := ec.client.Watch(ctx, key)
-    
-    go func() {
-        for watchResp := range watchChan {
-            for _, event := range watchResp.Events {
-                ch <- string(event.Kv.Value)
-            }
-        }
-        close(ch)
-    }()
-    
-    return ch
-}
-
-func (ec *EtcdConfig) Close() error {
-    return ec.client.Close()
-}
-```
-
-**Consul配置中心**
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-    
-    "github.com/hashicorp/consul/api"
-)
-
-type ConsulConfig struct {
-    client *api.Client
-}
-
-func NewConsulConfig(addr string) (*ConsulConfig, error) {
-    config := api.DefaultConfig()
-    config.Address = addr
-    
-    client, err := api.NewClient(config)
-    if err != nil {
-        return nil, err
-    }
-    
-    return &ConsulConfig{client: client}, nil
-}
-
-func (cc *ConsulConfig) Get(key string) (string, error) {
-    kv, _, err := cc.client.KV().Get(key, nil)
-    if err != nil {
-        return "", err
-    }
-    
-    if kv == nil {
-        return "", fmt.Errorf("key not found")
-    }
-    
-    return string(kv.Value), nil
-}
-
-func (cc *ConsulConfig) Set(key, value string) error {
-    kv := &api.KVPair{
-        Key:   key,
-        Value: []byte(value),
-    }
-    
-    _, err := cc.client.KV().Put(kv, nil)
-    return err
-}
-
-func (cc *ConsulConfig) Watch(key string) (<-chan string, error) {
-    ch := make(chan string)
-    
-    opts := &api.QueryOptions{
-        WaitIndex: 0,
-    }
-    
-    go func() {
-        for {
-            kv, meta, err := cc.client.KV().Get(key, opts)
-            if err != nil {
-                close(ch)
-                return
-            }
-            
-            if kv != nil {
-                ch <- string(kv.Value)
-            }
-            
-            opts.WaitIndex = meta.LastIndex
-        }
-    }()
-    
-    return ch, nil
-}
-```
-
-### 6.4 配置热更新
-
-配置热更新允许在不重启应用的情况下更新配置。
-
-**配置热更新实现**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    "sync"
-    "time"
-    
-    "github.com/fsnotify/fsnotify"
-)
-
-type ConfigManager struct {
-    config  *Config
-    mu      sync.RWMutex
-    watchers []func(*Config)
-}
-
-func NewConfigManager(filename string) (*ConfigManager, error) {
-    config, err := LoadConfigFromFile(filename)
-    if err != nil {
-        return nil, err
-    }
-    
-    cm := &ConfigManager{
-        config:   config,
-        watchers: make([]func(*Config), 0),
-    }
-    
-    go cm.watchConfig(filename)
-    
-    return cm, nil
-}
-
-func (cm *ConfigManager) GetConfig() *Config {
-    cm.mu.RLock()
-    defer cm.mu.RUnlock()
-    
-    return cm.config
-}
-
-func (cm *ConfigManager) WatchConfig(callback func(*Config)) {
-    cm.mu.Lock()
-    defer cm.mu.Unlock()
-    
-    cm.watchers = append(cm.watchers, callback)
-}
-
-func (cm *ConfigManager) watchConfig(filename string) {
-    watcher, err := fsnotify.NewWatcher()
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer watcher.Close()
-    
-    err = watcher.Add(filename)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for {
-        select {
-        case event, ok := <-watcher.Events:
-            if !ok {
-                return
-            }
-            
-            if event.Op&fsnotify.Write == fsnotify.Write {
-                config, err := LoadConfigFromFile(filename)
-                if err != nil {
-                    log.Printf("Error reloading config: %v", err)
-                    continue
-                }
-                
-                cm.mu.Lock()
-                cm.config = config
-                cm.mu.Unlock()
-                
-                for _, watcher := range cm.watchers {
-                    watcher(config)
-                }
-                
-                log.Println("Config reloaded")
-            }
-            
-        case err, ok := <-watcher.Errors:
-            if !ok {
-                return
-            }
-            log.Printf("Watcher error: %v", err)
-        }
-    }
-}
-```
-
-### 6.5 小结
-
-本章介绍了Go语言的配置管理，包括环境变量、配置文件、配置中心、配置热更新等。我们学习了Go语言如何使用环境变量、JSON/YAML/TOML配置文件、Etcd/Consul配置中心、实现配置热更新等。掌握好Go语言的配置管理对于构建可维护的应用程序非常重要。
-
-下一章我们将学习Go语言的监控和追踪，包括Prometheus、Jaeger、日志聚合等，以及它们的使用方法和注意事项。
-
-## 第七章：监控和追踪
-
-### 7.1 Prometheus监控
-
-Prometheus是一个开源的监控和警报工具包。
-
-**Prometheus客户端**
-
-```go
-package main
-
-import (
-    "net/http"
-    
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-    httpRequestsTotal = prometheus.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "http_requests_total",
-            Help: "Total number of HTTP requests",
-        },
-        []string{"method", "path", "status"},
-    )
-    
-    httpRequestDuration = prometheus.NewHistogramVec(
-        prometheus.HistogramOpts{
-            Name:    "http_request_duration_seconds",
-            Help:    "HTTP request duration in seconds",
-            Buckets: prometheus.DefBuckets,
-        },
-        []string{"method", "path"},
-    )
-    
-    activeConnections = prometheus.NewGauge(
-        prometheus.GaugeOpts{
-            Name: "active_connections",
-            Help: "Number of active connections",
-        },
-    )
+	httpRequests = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "http_requests_total", Help: "请求总数"},
+		[]string{"method", "path", "status"},
+	)
+	httpLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{Name: "http_request_duration_seconds", Buckets: prometheus.DefBuckets},
+		[]string{"path"},
+	)
 )
 
 func init() {
-    prometheus.MustRegister(httpRequestsTotal)
-    prometheus.MustRegister(httpRequestDuration)
-    prometheus.MustRegister(activeConnections)
+	prometheus.MustRegister(httpRequests, httpLatency)
 }
 
-func prometheusMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        
-        activeConnections.Inc()
-        defer activeConnections.Dec()
-        
-        rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-        next.ServeHTTP(rw, r)
-        
-        duration := time.Since(start).Seconds()
-        
-        httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, string(rw.statusCode)).Inc()
-        httpRequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
-    })
+// 在日志中间件里顺带记录
+func Metrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := &responseWriter{ResponseWriter: w, status: 200}
+		next.ServeHTTP(ww, r)
+		httpRequests.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(ww.status)).Inc()
+		httpLatency.WithLabelValues(r.URL.Path).Observe(time.Since(start).Seconds())
+	})
 }
 
+// 挂载
+mux.Handle("/metrics", promhttp.Handler())
+```
+
+> **四种指标类型**：Counter（只增）、Gauge（可增减）、Histogram（分布，算 P99）、Summary。**告警要用 Histogram 算分位数，不要用平均延迟**（平均数会掩盖长尾）。
+
+### 5.4 OpenTelemetry 链路追踪
+
+在微服务里，一个请求会跨越多个服务，需要 `trace_id` 把它们串起来。用 OTLP 导出到 Jaeger：
+
+```go
+import (
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/trace"
+)
+
+func InitTracer(ctx context.Context, serviceName string) (*trace.TracerProvider, error) {
+	exp, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tp := trace.NewTracerProvider(
+		trace.WithBatcher(exp),
+		trace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL, semconv.ServiceName(serviceName),
+		)),
+	)
+	otel.SetTracerProvider(tp)
+	return tp, nil
+}
+```
+
+```bash
+docker run -d --name jaeger -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one:latest
+# 打开 http://localhost:16686 查看调用链
+```
+
+> **面试点**：Logging（离散事件）、Metrics（聚合数值）、Tracing（请求全链路）是可观测性三支柱，缺一不可。
+
+### 5.5 本章小结与面试题
+
+**要点回顾**：配置优先级；结构化日志分级；Prometheus 用 Histogram 算 P99；OTel 串起跨服务链路。
+
+**面试题**：可观测性三支柱？为什么要用分位数而不是平均延迟？trace_id 如何跨服务传递？
+
+---
+
+## 第六章 工程工具集成
+
+### 6.1 依赖注入：Wire
+
+手工 `NewA(NewB(NewC()))` 在依赖变多后很难维护。Google Wire 在**编译期**生成注入代码，无反射、无运行时开销。
+
+```go
+// wire.go（加 `//go:build wireinject` 约束）
+//go:build wireinject
+
+func InitApp() (*App, error) {
+	wire.Build(NewDB, NewRepo, NewService, NewHandler, NewApp)
+	return nil, nil
+}
+```
+
+运行 `wire` 命令后生成 `wire_gen.go`，这就是标准代码。对比运行时反射注入（如 uber/dig），Wire 更易调试。
+
+### 6.2 定时任务：robfig/cron
+
+```go
+import "github.com/robfig/cron/v3"
+
+c := cron.New(cron.WithSeconds()) // 支持秒级
+c.AddFunc("0 0 3 * * *", func() { // 每天 03:00:00
+	log.Println("执行每日对账")
+})
+c.Start()
+defer c.Stop()
+```
+
+> 多实例部署时定时任务会重复执行，需要分布式锁（如 Redis）保证只有一台机器跑。
+
+### 6.3 命令行工具：cobra
+
+```go
+var rootCmd = &cobra.Command{Use: "app", Short: "我的应用"}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "启动 HTTP 服务",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return startServer()
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(serveCmd)
+	serveCmd.Flags().StringP("addr", "a", ":8080", "监听地址")
+}
+
+func main() { rootCmd.Execute() }
+```
+
+```bash
+app serve --addr :9090
+```
+
+### 6.4 对象存储：MinIO / S3
+
+```bash
+docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 \
+  minio/minio server /data --console-address ":9001"
+```
+
+```go
+import "github.com/minio/minio-go/v7"
+
+cli, _ := minio.New("localhost:9000", &minio.Options{
+	Creds:  credentials.NewStaticV4("admin", "admin123", ""),
+	Secure: false,
+})
+
+// 上传
+_, err := cli.FPutObject(ctx, "uploads", "avatar.png", "./avatar.png",
+	minio.PutObjectOptions{ContentType: "image/png"})
+
+// 生成 7 天有效的临时下载链接（比公开桶安全）
+u, _ := cli.PresignedGetObject(ctx, "uploads", "avatar.png", 7*24*time.Hour, nil)
+```
+
+> **原则**：文件存对象存储，数据库只存 URL。永远用**预签名 URL**给客户端临时访问，不要开放整桶。
+
+### 6.5 本章小结与面试题
+
+**要点回顾**：Wire 编译期注入；cron 多实例要加锁；cobra 组织 CLI；对象存储用预签名 URL。
+
+**面试题**：编译期 DI 和运行时 DI 的区别？定时任务如何避免重复执行？大文件上传设计（分片、断点续传）？
+
+---
+
+## 第七章 容错：限流 / 熔断 / 重试 / 超时
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open : 失败率超过阈值
+    Open --> HalfOpen : 等待冷却时间
+    HalfOpen --> Closed : 放行请求成功
+    HalfOpen --> Open : 放行请求仍失败
+```
+
+### 7.1 超时：一切容错的基础
+
+没有超时，就没有容错。每个出站调用都必须有超时：
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+defer cancel()
+resp, err := client.Do(req.WithContext(ctx))
+```
+
+> **关键**：把上游的 `r.Context()` 传递下去，上游取消时下游调用一并取消，避免资源浪费。
+
+### 7.2 重试与退避
+
+重试要满足：**幂等** + **有次数上限** + **指数退避 + 抖动**。
+
+```go
+func Retry(ctx context.Context, attempts int, fn func() error) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		// 指数退避 + 抖动，避免"重试风暴"同时爆发
+		backoff := time.Duration(1<<i)*100*time.Millisecond + time.Duration(rand.Intn(100))*time.Millisecond
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return err
+}
+```
+
+> ⚠️ 非幂等操作（如"创建订单"）重试会导致重复下单，必须配合幂等键。
+
+### 7.3 熔断：别让故障蔓延
+
+当依赖服务大面积失败，继续调用只会拖垮自己。熔断器三态：**Closed（正常）→ Open（断开，直接快速失败）→ Half-Open（试探）**。
+
+```go
+import "github.com/sony/gobreaker"
+
+cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+	Name:        "user-service",
+	MaxRequests: 3,                // Half-Open 时放行 3 个试探请求
+	Interval:    10 * time.Second, // Closed 状态统计窗口
+	Timeout:     30 * time.Second, // Open 后多久进入 Half-Open
+	ReadyToTrip: func(counts gobreaker.Counts) bool {
+		return counts.ConsecutiveFailures > 5
+	},
+})
+
+result, err := cb.Execute(func() (interface{}, error) {
+	return callUserService(ctx)
+})
+```
+
+### 7.4 隔离与降级
+
+- **隔离**：给不同依赖分配独立连接池/协程池，防止一个慢依赖耗尽所有资源（舱壁模式）。
+- **降级**：依赖不可用时返回兜底数据（默认值、缓存快照），而不是直接报错。例如推荐服务挂了，就返回热门榜单。
+
+### 7.5 本章小结与面试题
+
+**要点回顾**：超时是一切的底座；重试必须幂等 + 退避；熔断三态；隔离防资源耗尽；降级保可用性。
+
+**面试题**：熔断和限流的区别？熔断器三个状态如何转换？重试风暴怎么避免？降级策略有哪些？
+
+---
+
+## 第八章 实战：组装一个可观测的小型后端
+
+把前面组件拼起来，形成 `main.go` 的装配逻辑：
+
+```go
 func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("Data"))
-    })
-    
-    handler := prometheusMiddleware(mux)
-    
-    http.Handle("/metrics", promhttp.Handler())
-    http.Handle("/", handler)
-    
-    http.ListenAndServe(":8080", nil)
+	cfg, _ := Load()
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	// 依赖
+	db, _ := OpenDB(cfg.DBDSN)
+	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+
+	// 初始化链路追踪
+	tp, _ := InitTracer(context.Background(), "demo-api")
+	defer tp.Shutdown(context.Background())
+
+	// 业务处理器
+	app := newHandler(db, rdb)
+
+	// 中间件洋葱（注意顺序）
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", app.getUser)
+	mux.Handle("/metrics", promhttp.Handler())
+
+	h := mw.Chain(mux,
+		mw.RequestID(),
+		mw.Recover(logger),
+		mw.Metrics,
+		mw.Logging(logger),
+		mw.CORS([]string{"https://example.com"}),
+		mw.RateLimit(100, 200),
+	)
+
+	srv := &http.Server{Addr: cfg.Addr, Handler: h, ReadTimeout: 5 * time.Second}
+	// ... 优雅关闭（见《网络开发》1.9）
+	_ = srv.ListenAndServe()
 }
 ```
 
-**自定义指标**
+**中间件顺序原则**（从外到内）：
 
-```go
-type Metrics struct {
-    requestsTotal    *prometheus.CounterVec
-    requestDuration *prometheus.HistogramVec
-    errorsTotal     *prometheus.CounterVec
-    activeUsers     prometheus.Gauge
-}
+1. `RequestID` 最先，让后续所有日志都能带上它；
+2. `Recover` 尽早，兜住后面所有 panic；
+3. `Metrics`/`Logging` 覆盖全部请求；
+4. `CORS` 在鉴权之前（预检请求不能要求鉴权）；
+5. `RateLimit` 放在鉴权前后皆可，视保护对象而定；
+6. 业务 Handler 最内层。
 
-func NewMetrics() *Metrics {
-    return &Metrics{
-        requestsTotal: prometheus.NewCounterVec(
-            prometheus.CounterOpts{
-                Name: "app_requests_total",
-                Help: "Total number of requests",
-            },
-            []string{"endpoint", "method"},
-        ),
-        requestDuration: prometheus.NewHistogramVec(
-            prometheus.HistogramOpts{
-                Name:    "app_request_duration_seconds",
-                Help:    "Request duration in seconds",
-                Buckets: []float64{0.1, 0.5, 1, 2, 5, 10},
-            },
-            []string{"endpoint"},
-        ),
-        errorsTotal: prometheus.NewCounterVec(
-            prometheus.CounterOpts{
-                Name: "app_errors_total",
-                Help: "Total number of errors",
-            },
-            []string{"type"},
-        ),
-        activeUsers: prometheus.NewGauge(prometheus.GaugeOpts{
-            Name: "app_active_users",
-            Help: "Number of active users",
-        }),
-    }
-}
+配套 `docker-compose.yml` 一键起依赖（Redis + MySQL + Jaeger），让读者 clone 即可运行。
 
-func (m *Metrics) Register() {
-    prometheus.MustRegister(m.requestsTotal)
-    prometheus.MustRegister(m.requestDuration)
-    prometheus.MustRegister(m.errorsTotal)
-    prometheus.MustRegister(m.activeUsers)
-}
-```
+---
 
-### 7.2 Jaeger分布式追踪
+## 附录：高频面试题汇总
 
-Jaeger是一个开源的分布式追踪系统。
-
-**Jaeger客户端**
-
-```go
-package main
-
-import (
-    "context"
-    "net/http"
-    
-    "github.com/opentracing/opentracing-go"
-    "github.com/uber/jaeger-client-go"
-    jaegercfg "github.com/uber/jaeger-client-go/config"
-)
-
-func initTracer(serviceName string) (opentracing.Tracer, io.Closer, error) {
-    cfg := jaegercfg.Configuration{
-        ServiceName: serviceName,
-        Sampler: &jaegercfg.SamplerConfig{
-            Type:  jaeger.SamplerTypeConst,
-            Param: 1,
-        },
-        Reporter: &jaegercfg.ReporterConfig{
-            LogSpans: true,
-        },
-    }
-    
-    tracer, closer, err := cfg.NewTracer()
-    if err != nil {
-        return nil, nil, err
-    }
-    
-    opentracing.SetGlobalTracer(tracer)
-    return tracer, closer, nil
-}
-
-func tracingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        wireContext, err := opentracing.GlobalTracer().Extract(
-            opentracing.HTTPHeaders,
-            opentracing.HTTPHeadersCarrier(r.Header),
-        )
-        
-        var span opentracing.Span
-        if err != nil {
-            span = opentracing.StartSpan(r.URL.Path)
-        } else {
-            span = opentracing.StartSpan(r.URL.Path, opentracing.ChildOf(wireContext))
-        }
-        defer span.Finish()
-        
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
-        
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
-}
-
-func main() {
-    tracer, closer, err := initTracer("my-service")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer closer.Close()
-    
-    mux := http.NewServeMux()
-    mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-        span := opentracing.SpanFromContext(r.Context())
-        span.SetTag("user.id", "123")
-        
-        w.Write([]byte("Data"))
-    })
-    
-    handler := tracingMiddleware(mux)
-    
-    http.ListenAndServe(":8080", handler)
-}
-```
-
-### 7.3 日志聚合
-
-日志聚合将来自多个来源的日志集中管理。
-
-**结构化日志**
-
-```go
-package main
-
-import (
-    "os"
-    
-    "go.uber.org/zap"
-    "go.uber.org/zap/zapcore"
-)
-
-type Logger struct {
-    *zap.Logger
-}
-
-func NewLogger(level string) (*Logger, error) {
-    var zapLevel zapcore.Level
-    switch level {
-    case "debug":
-        zapLevel = zapcore.DebugLevel
-    case "info":
-        zapLevel = zapcore.InfoLevel
-    case "warn":
-        zapLevel = zapcore.WarnLevel
-    case "error":
-        zapLevel = zapcore.ErrorLevel
-    default:
-        zapLevel = zapcore.InfoLevel
-    }
-    
-    config := zap.Config{
-        Level:            zap.NewAtomicLevelAt(zapLevel),
-        Development:      false,
-        Encoding:         "json",
-        EncoderConfig:    zap.NewProductionEncoderConfig(),
-        OutputPaths:      []string{"stdout"},
-        ErrorOutputPaths: []string{"stderr"},
-    }
-    
-    logger, err := config.Build()
-    if err != nil {
-        return nil, err
-    }
-    
-    return &Logger{Logger: logger}, nil
-}
-
-func (l *Logger) LogRequest(method, path string, statusCode int, duration time.Duration) {
-    l.Info("HTTP Request",
-        zap.String("method", method),
-        zap.String("path", path),
-        zap.Int("status", statusCode),
-        zap.Duration("duration", duration),
-    )
-}
-
-func (l *Logger) LogError(err error, fields ...zap.Field) {
-    fields = append(fields, zap.Error(err))
-    l.Error("Error occurred", fields...)
-}
-```
-
-**日志中间件**
-
-```go
-func loggingMiddleware(logger *Logger) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            start := time.Now()
-            
-            rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-            next.ServeHTTP(rw, r)
-            
-            duration := time.Since(start)
-            
-            logger.LogRequest(r.Method, r.URL.Path, rw.statusCode, duration)
-        })
-    }
-}
-```
-
-### 7.4 健康检查
-
-健康检查用于监控服务状态。
-
-**健康检查端点**
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "net/http"
-)
-
-type HealthChecker struct {
-    checks map[string]CheckFunc
-}
-
-type CheckFunc func() error
-
-type HealthStatus struct {
-    Status  string            `json:"status"`
-    Checks  map[string]string `json:"checks"`
-    Version string            `json:"version"`
-}
-
-func NewHealthChecker() *HealthChecker {
-    return &HealthChecker{
-        checks: make(map[string]CheckFunc),
-    }
-}
-
-func (hc *HealthChecker) AddCheck(name string, check CheckFunc) {
-    hc.checks[name] = check
-}
-
-func (hc *HealthChecker) Handler() http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        status := "healthy"
-        checks := make(map[string]string)
-        
-        for name, check := range hc.checks {
-            if err := check(); err != nil {
-                status = "unhealthy"
-                checks[name] = err.Error()
-            } else {
-                checks[name] = "ok"
-            }
-        }
-        
-        healthStatus := HealthStatus{
-            Status:  status,
-            Checks:  checks,
-            Version: "1.0.0",
-        }
-        
-        w.Header().Set("Content-Type", "application/json")
-        
-        if status == "healthy" {
-            w.WriteHeader(http.StatusOK)
-        } else {
-            w.WriteHeader(http.StatusServiceUnavailable)
-        }
-        
-        json.NewEncoder(w).Encode(healthStatus)
-    }
-}
-```
-
-**就绪检查**
-
-```go
-type ReadinessChecker struct {
-    ready bool
-    mu    sync.RWMutex
-}
-
-func NewReadinessChecker() *ReadinessChecker {
-    return &ReadinessChecker{ready: false}
-}
-
-func (rc *ReadinessChecker) SetReady(ready bool) {
-    rc.mu.Lock()
-    defer rc.mu.Unlock()
-    rc.ready = ready
-}
-
-func (rc *ReadinessChecker) IsReady() bool {
-    rc.mu.RLock()
-    defer rc.mu.RUnlock()
-    return rc.ready
-}
-
-func (rc *ReadinessChecker) Handler() http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        if rc.IsReady() {
-            w.WriteHeader(http.StatusOK)
-            w.Write([]byte("OK"))
-        } else {
-            w.WriteHeader(http.StatusServiceUnavailable)
-            w.Write([]byte("Not Ready"))
-        }
-    }
-}
-```
-
-### 7.5 小结
-
-本章介绍了Go语言的监控和追踪，包括Prometheus监控、Jaeger分布式追踪、日志聚合、健康检查等。我们学习了Go语言如何使用Prometheus进行监控、使用Jaeger进行分布式追踪、实现结构化日志、实现健康检查和就绪检查等。掌握好Go语言的监控和追踪对于构建可观测的分布式系统非常重要。
-
-## 总结
-
-本文档全面介绍了Go语言的中间件与工具集成，包括：
-
-1. **HTTP中间件**：中间件基础、日志中间件、认证中间件、CORS中间件
-2. **数据库集成**：SQL数据库、ORM框架、连接池、事务处理
-3. **缓存集成**：Redis缓存、Memcached缓存、本地缓存、缓存模式
-4. **更多中间件**：限流中间件、压缩中间件、超时中间件、重试中间件、熔断中间件
-5. **消息队列集成**：RabbitMQ、Kafka、消息模式
-6. **配置管理**：环境变量、配置文件、配置中心、配置热更新
-7. **监控和追踪**：Prometheus监控、Jaeger分布式追踪、日志聚合、健康检查
-
-通过学习本文档，你应该对Go语言的中间件与工具集成有了全面的了解，能够更好地使用Go语言进行中间件开发和工具集成。希望本文档能够帮助你在Go语言的学习之路上更进一步！
+1. 中间件的执行顺序与实现原理？
+2. 常见限流算法及适用场景？
+3. 数据库连接池参数怎么调？连接泄漏如何排查？
+4. 缓存穿透 / 击穿 / 雪崩的区别与解法？
+5. 如何保证缓存与数据库的一致性？
+6. 消息队列如何保证不丢、不重、有序？
+7. 可观测性三支柱？P99 为什么比平均值重要？
+8. Wire 与反射式 DI 的区别？
+9. 熔断器状态机？熔断与限流的区别？
+10. 重试的注意事项（幂等、退避、抖动）？

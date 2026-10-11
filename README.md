@@ -38,9 +38,9 @@
 - 📒 [工程实践](go-advance/go-engineering.md) - 实际项目应用与工程规范
 
 ### 🔴 3. Go 语言开发实战
-- 📕 [go语言网络开发](go-pratical/go-webdev.md) - Web 开发技能
-- 📕 [中间件与工具集成](go-pratical/go-middleware.md) - 系统集成能力
-- 📕 [go语言微服务](go-pratical/go-microservice.md) - 现代架构实践
+- 📕 [go语言网络开发](go-practice/go-webdev.md) - Web 开发技能
+- 📕 [中间件与工具集成](go-practice/go-middleware.md) - 系统集成能力
+- 📕 [go语言微服务](go-practice/go-microservices.md) - 现代架构实践
 
 ---
 
