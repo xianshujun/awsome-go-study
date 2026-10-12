@@ -51,3 +51,25 @@ func (l *startupLog) close() {
 		_ = l.file.Close()
 	}
 }
+
+// writeErrorNotice 在程序目录（不可写时退到用户配置目录）写下错误文件，
+// 作为对话框不可用时的最后一道可见性保障。
+func writeErrorNotice(title, text string) {
+	body := title + "\n\n" + text + "\n"
+	for _, path := range noticePaths() {
+		if err := os.WriteFile(path, []byte(body), 0600); err == nil {
+			return
+		}
+	}
+}
+
+func noticePaths() []string {
+	paths := make([]string, 0, 2)
+	if exe, err := os.Executable(); err == nil {
+		paths = append(paths, filepath.Join(filepath.Dir(exe), "GoStudy-error.txt"))
+	}
+	if dir, err := os.UserConfigDir(); err == nil {
+		paths = append(paths, filepath.Join(dir, "go-study", "error.txt"))
+	}
+	return paths
+}

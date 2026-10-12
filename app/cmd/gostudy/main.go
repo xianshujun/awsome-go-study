@@ -20,7 +20,7 @@ import (
 	"github.com/xianshujun/awsome-go-study/app/web"
 )
 
-const version = "0.3.0"
+const version = "0.3.1"
 
 func main() {
 	noBrowser := flag.Bool("no-browser", false, "不自动打开应用窗口")
@@ -50,9 +50,7 @@ func main() {
 		log.close()
 	}()
 	log.write("版本 %s，平台 %s/%s，可执行文件：%s", version, runtime.GOOS, runtime.GOARCH, executablePath())
-	if hasConsole() {
-		fmt.Printf("GoStudy %s\n", version)
-	}
+	fmt.Printf("GoStudy %s\n", version)
 
 	if *selfTest {
 		runSelfTest(*dataDir, log)
@@ -72,10 +70,8 @@ func main() {
 		os.Exit(1)
 	}
 	log.write("步骤 2/3：完成，监听 %s", server.URL())
-	if hasConsole() {
-		fmt.Println("GoStudy 已启动。关闭本窗口或按 Ctrl+C 可退出。")
-		fmt.Println(server.URL())
-	}
+	fmt.Println("GoStudy 已启动。关闭本窗口或按 Ctrl+C 可退出。")
+	fmt.Println(server.URL())
 
 	if !*noBrowser {
 		log.write("步骤 3/3：打开应用窗口")
