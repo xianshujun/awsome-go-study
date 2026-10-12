@@ -84,12 +84,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
+      # ubuntu 运行器自带 Android SDK；android-actions/setup-android 会尝试安装
+      # 早已废弃的 "tools" 包而失败，所以这里直接用自带的 sdkmanager 装所需组件。
       - name: 安装 Android SDK 组件与 NDK
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
-          yes | sdkmanager --licenses >/dev/null
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$(ls -d "$sdk_root"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)"
+          [[ -x "$sdkmanager" ]] || { echo "未找到 sdkmanager，检查 ANDROID_HOME"; exit 1; }
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$sdk_root/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          yes | "$sdkmanager" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          ls "$sdk_root/ndk"
 
       - name: 安装 gomobile 工具
         run: bash app/scripts/install-mobile-tools.sh
@@ -110,7 +117,7 @@ jobs:
 
       - name: 构建 Android 包
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          # ANDROID_HOME / ANDROID_NDK_HOME 由上一步写入 GITHUB_ENV。
           GOSTUDY_KEYSTORE: ${{ steps.signing.outputs.available == 'true' && format('{0}/gostudy-release.jks', runner.temp) || '' }}
           GOSTUDY_KEY_ALIAS: ${{ secrets.GOSTUDY_KEY_ALIAS || 'gostudy' }}
           GOSTUDY_KEY_PASSWORD: ${{ secrets.GOSTUDY_KEY_PASSWORD }}
