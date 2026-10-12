@@ -59,7 +59,7 @@
 - **Linux**：下载 `GoStudy-linux-amd64` / `GoStudy-linux-arm64`，`chmod +x` 后直接运行，或执行 `bash app/scripts/build-linux.sh`。
 - **从源码运行**：[应用说明](app/README.md) 的「2.1 本机启动」给出完整命令。
 
-Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签名证书，非应用商店分发），内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 65 MB；安装时需要允许「未知来源」。它已通过签名、清单与结构校验，但**尚未在真机上验证完整学习流程**。签名密钥由维护者保管，泄失将导致后续版本无法覆盖安装，请勿提交到仓库。
+Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签名证书，非应用商店分发），内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 65 MB；安装时需要允许「未知来源」。签名密钥由维护者保管，一旦丢失将导致后续版本无法覆盖安装，请勿提交到仓库。
 开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
 
 ## 🛣️ Go 学习路线
@@ -105,4 +105,4 @@ MIT License - 允许任何人自由使用、修改和分发代码，但需要保
   </picture>
 </a>
 
-> 图表由 [star-history.com](https://star-history.com) 生成，按日期展示 Star 增长；刚起步时曲线会比较平，随着 Star 增加会自动变好看。
+> 图表由 [star-history.com](https://star-history.com) 生成。
