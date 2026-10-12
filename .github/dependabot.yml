@@ -1,26 +1,48 @@
 version: 2
 
-# 每周检查一次依赖更新，命中安全更新时会直接开 PR。
+# 说明：Dependabot 默认"一个依赖一个 PR"。首次启用时会把所有落后依赖一次性开成 PR
+# （我们这次就是 5 个 npm + 5 个 Actions = 10 个），之后每周只针对新落后的依赖开单。
+# 下面的 groups 把 minor/patch 合并成一个 PR，只有大版本升级才会单独开单，噪音大幅下降。
+#
+# 想永久忽略某个依赖或某个大版本，可以二选一：
+#   1. 在对应 PR 里评论：@dependabot ignore this major version
+#   2. 在该 ecosystem 下加 ignore 规则，例如：
+#        ignore:
+#          - dependency-name: 'vite'
+#            update-types: ['version-update:semver-major']
+
 updates:
   - package-ecosystem: gomod
     directory: /app
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: 'chore(deps)'
+    groups:
+      go-deps:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: npm
     directory: /app/frontend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: 'chore(deps)'
+    groups:
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 3
     commit-message:
       prefix: 'chore(ci)'
+    groups:
+      github-actions:
+        patterns: ['*']
