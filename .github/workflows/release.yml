@@ -84,7 +84,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
 
       - name: 安装 Android SDK 组件与 NDK
         run: |
