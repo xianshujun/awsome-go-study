@@ -89,3 +89,19 @@ Android 说明：已提供原生 WebView 工程与 Go 移动绑定构建脚本�
 ###  许可证
 
 MIT License - 允许任何人自由使用、修改和分发代码，但需要保留原作者信息。
+
+---
+
+### ⭐ Star 趋势
+
+如果这个项目帮到了你，欢迎点一个 Star ⭐ 支持一下。
+
+<a href="https://star-history.com/#xianshujun/awsome-go-study&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date" width="640" />
+  </picture>
+</a>
+
+> 图表由 [star-history.com](https://star-history.com) 生成，按日期展示 Star 增长；刚起步时曲线会比较平，随着 Star 增加会自动变好看。
