@@ -3,7 +3,7 @@
 > 面向对象：希望通过动手练习学习 Go 的开发者，以及需要维护本地学习应用的贡献者。
 > 阅读方式：先了解学习流程，再启动最小可运行版本，最后查看 Windows、Android 打包与运行边界。
 > 环境要求：开发构建使用 Go 1.25+、Node.js 22.12+、npm；已打包的 Windows 应用无需安装 Go 或 Node.js。Android 8.0+，构建还需要 Java 17 JDK、Android SDK 35 和 NDK。
-> 产品状态：首个可运行版本，包含四章、16 个交互练习。Windows 可执行文件已交叉编译；Android 工程已实现，尚未完成 APK 构建和真机验收。
+> 产品状态：8 门课程、43 个交互练习。Windows 可执行文件与 Android APK（debug 签名）已随 Releases 发布；Windows 实机体验持续验证中，Android 尚未在真机跑完整流程。
 
 ## 目录
 
@@ -171,7 +171,7 @@ bash app/scripts/install-mobile-tools.sh
 bash app/scripts/build-android.sh debug
 ```
 
-构建脚本使用固定版本 gomobile/gobind，以及带校验值的 Gradle 8.11.1 wrapper。调试产物路径为 `app/release/GoStudy-debug.apk`。发布构建：
+构建脚本使用固定版本 gomobile/gobind，以及带校验值的 Gradle 8.11.1 wrapper。调试产物路径为 `app/release/GoStudy-debug.apk`（约 68 MB，含四种 ABI）。仓库的 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 里已经提供了一份构建好的 debug 签名 APK，不想自己搭 Android 工具链的话可以直接下载安装。发布构建：
 
 ```bash
 bash app/scripts/build-android.sh release
@@ -262,7 +262,7 @@ bash app/scripts/build-windows.sh
 
 界面验收使用无头 Chromium 完成：1440×940 与 390×844 两种视口下截取首页、课程目录、课程详情、动手挑战、AI 导师抽屉与设置页共八张截图，控制台无报错；实测计算样式为页面底色 `rgb(251,252,254)`、标题 `rgb(19,11,67)`、主按钮 `rgb(96,79,205)` 且圆角 8px，与参考站点一致，Poppins 字体加载成功且中文正常渲染。截图验收能证明布局与配色未崩坏，但不能替代真机上的字体、交互与性能体验。Windows 退出流程已在本机验证：调用退出接口后进程结束、端口释放、重复退出保持幂等。
 
-Android 缺少 SDK 35/build-tools 35/NDK，尚未产出 AAR/APK。原生 Java 的编译检查使用已安装的 Android API 36 与绑定占位类型，只能证明容器源代码通过该级别静态检查。
+Android 构建环境与产物现状：本机已用官方源安装 SDK 35 / build-tools 35.0.0 / NDK 27.2.12479018，并产出 debug 签名 APK（约 68 MB，含 arm64-v8a、armeabi-v7a、x86、x86_64 四种 ABI），已通过包结构、清单与签名校验（`aapt2 dump badging`、`apksigner verify`）。**但还没有在真机上安装并跑完学习流程**，触摸交互、WebView 表现和安装兼容性都需要真机验收。
 
 课程已覆盖仓库 `go-basic`、`go-advance`、`go-practice` 三部分共 8 篇文档的核心章节（43 节）。文档中较长篇幅的面试题汇总、框架集成细节（Gin、GORM、Redis、Kafka 等）尚未逐条转换为课程；仓库原有长篇资料保持完整。后续扩展课程应添加明确任务、可运行参考解答和预期输出，并纳入全课程执行测试。
 

@@ -55,10 +55,10 @@
 **获取方式**
 
 - **Windows**：到 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 下载 `GoStudy.exe`，双击即用（也可从源码运行 `bash app/scripts/build-windows.sh` 自行构建）。
-- **Android**：原生 WebView 工程与 Go 移动绑定构建脚本已就绪，APK 构建方法见 [应用说明](app/README.md)。
+- **Android**：到 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 下载 `GoStudy-android-debug.apk`（Android 8.0+，debug 签名可直接安装），也可以用 `bash app/scripts/build-android.sh debug` 自行构建。
 - **从源码运行**：[应用说明](app/README.md) 的「2.1 本机启动」给出完整命令。
 
-Android 说明：已提供原生 WebView 工程与 Go 移动绑定构建脚本；当前版本尚未完成 APK 与真机验收。
+Android 说明：APK 已可下载安装（debug 签名，内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 68 MB），安装时需要允许「未知来源」；**尚未在真机上验证完整学习流程**，原生 WebView 工程与构建脚本也在仓库里。
 开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
 
 ## 🛣️ Go 学习路线
