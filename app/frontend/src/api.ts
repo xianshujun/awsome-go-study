@@ -5,7 +5,6 @@ export interface Course {
   level: string;
   duration: string;
   lessonIds: string[];
-  accent: string;
 }
 export interface Lesson {
   id: string;

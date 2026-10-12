@@ -5,8 +5,7 @@
     "title": "Go 语言基础 · 并发",
     "description": "对照 go-basic/go-concurrency.md：从 goroutine、channel 到工作池与管道，把并发写成可验证的代码。",
     "level": "基础",
-    "duration": "约 60 分钟",
-    "accent": "#2e57e8"
+    "duration": "约 60 分钟"
   },
   "lessons": [
     {

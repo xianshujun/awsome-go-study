@@ -5,8 +5,7 @@
     "title": "Go 开发实战 · 网络开发",
     "description": "对照 go-practice/go-webdev.md：把 HTTP 请求响应、Handler、路由与并发处理讲成能运行的模型。",
     "level": "实战",
-    "duration": "约 55 分钟",
-    "accent": "#2e57e8"
+    "duration": "约 55 分钟"
   },
   "lessons": [
     {

@@ -9,7 +9,6 @@ type Course struct {
 	Level       string   `json:"level"`
 	Duration    string   `json:"duration"`
 	LessonIDs   []string `json:"lessonIds"`
-	Accent      string   `json:"accent"`
 }
 type Quiz struct {
 	Question    string   `json:"question"`

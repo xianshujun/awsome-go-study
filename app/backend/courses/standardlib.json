@@ -5,8 +5,7 @@
     "title": "Go 语言进阶 · 标准库",
     "description": "对照 go-advance/go-standardlib.md：把 fmt、strings、strconv、math 用到顺手。",
     "level": "进阶",
-    "duration": "约 50 分钟",
-    "accent": "#f69605"
+    "duration": "约 50 分钟"
   },
   "lessons": [
     {

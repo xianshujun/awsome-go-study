@@ -5,8 +5,7 @@
     "title": "Go 开发实战 · 微服务",
     "description": "对照 go-practice/go-microservices.md：服务注册、网关路由、幂等与事件驱动，用可运行模型理解架构。",
     "level": "实战",
-    "duration": "约 55 分钟",
-    "accent": "#604fcd"
+    "duration": "约 55 分钟"
   },
   "lessons": [
     {

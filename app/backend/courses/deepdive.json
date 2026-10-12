@@ -5,8 +5,7 @@
     "title": "Go 语言进阶 · 语言深挖",
     "description": "对照 go-advance/go-deepdive.md：从内存布局、GC、调度器到反射，理解语言背后的机制。",
     "level": "进阶",
-    "duration": "约 55 分钟",
-    "accent": "#0fa3b1"
+    "duration": "约 55 分钟"
   },
   "lessons": [
     {

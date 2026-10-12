@@ -33,7 +33,7 @@ const lessons: Lesson[] = [
 
 function bootstrap(progress: Partial<Progress> = {}): Bootstrap {
   return {
-    courses: [{ id: 'basics', title: 'Go 语言基础', description: '从可运行的小程序开始。', level: '入门', duration: '13 分钟', lessonIds: lessons.map(lesson => lesson.id), accent: 'green' }],
+    courses: [{ id: 'basics', title: 'Go 语言基础', description: '从可运行的小程序开始。', level: '入门', duration: '13 分钟', lessonIds: lessons.map(lesson => lesson.id) }],
     lessons,
     progress: { completed: [], drafts: {}, notes: {}, lastLesson: '', ...progress },
     settings: { baseUrl: 'https://api.example.com/v1', model: 'study-model', hasKey: false },

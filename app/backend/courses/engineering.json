@@ -5,8 +5,7 @@
     "title": "Go 语言进阶 · 工程实践",
     "description": "对照 go-advance/go-engineering.md：项目结构、表驱动测试、性能与错误处理，写出可维护的代码。",
     "level": "进阶",
-    "duration": "约 55 分钟",
-    "accent": "#6a01ff"
+    "duration": "约 55 分钟"
   },
   "lessons": [
     {

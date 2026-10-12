@@ -5,8 +5,7 @@
     "title": "Go 开发实战 · 中间件与工具集成",
     "description": "对照 go-practice/go-middleware.md：中间件链、限流熔断重试超时，把容错写成可运行的小模型。",
     "level": "实战",
-    "duration": "约 55 分钟",
-    "accent": "#0b8055"
+    "duration": "约 55 分钟"
   },
   "lessons": [
     {

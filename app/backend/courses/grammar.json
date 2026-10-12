@@ -5,8 +5,7 @@
     "title": "Go 语言基础 · 语法",
     "description": "对照 go-basic/go-grammar.md 的章节顺序，从变量、控制流到切片映射，每个概念都写成能运行的代码。",
     "level": "基础",
-    "duration": "约 90 分钟",
-    "accent": "#604fcd"
+    "duration": "约 90 分钟"
   },
   "lessons": [
     {
