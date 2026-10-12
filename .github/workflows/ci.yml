@@ -1,0 +1,55 @@
+name: CI
+
+# 只跑应用相关的检查：课程文档是纯 Markdown，不参与构建。
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  backend:
+    name: Go 引擎与课程校验
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: app/go.sum
+      - name: 静态检查
+        run: go vet ./...
+      - name: 单元测试
+        run: go test ./...
+      - name: 竞态检查
+        run: go test -race ./backend
+      - name: 课程内容校验（参考解答通过 / starter 不通过）
+        run: go run ./cmd/lessoncheck -embedded
+
+  frontend:
+    name: React 界面测试与构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+      - name: 交互测试
+        run: npm test
+      - name: 生产构建
+        run: npm run build
