@@ -54,7 +54,7 @@ jobs:
             --clobber
 
       - name: 保存为工作流产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-builds
           path: |
@@ -138,7 +138,7 @@ jobs:
           gh release upload "$tag" "$apk" --clobber
 
       - name: 保存为工作流产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-build
           path: |
