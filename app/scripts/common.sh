@@ -11,6 +11,11 @@ require_command() { command -v "$1" >/dev/null 2>&1 || fail "Required tool not f
 build_frontend() {
     require_command npm
     [[ -f "$APP_DIR/frontend/package-lock.json" ]] || fail 'frontend/package-lock.json is missing.'
+    # 清理上一次的产物，但保留被版本库跟踪的 README.md——
+    # //go:embed dist 需要该目录至少有一个可嵌入文件，否则全新克隆无法编译。
+    if [[ -d "$APP_DIR/web/dist" ]]; then
+        find "$APP_DIR/web/dist" -mindepth 1 ! -name README.md -exec rm -rf -- {} +
+    fi
     (cd -- "$APP_DIR/frontend"; npm ci --no-audit --no-fund; npm run build)
     [[ -s "$APP_DIR/web/dist/index.html" ]] || fail 'Frontend build must produce web/dist/index.html.'
 }

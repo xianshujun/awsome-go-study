@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "../web/dist",
-    emptyOutDir: true,
+    // 不清空 dist：该目录有一个被版本库跟踪的 README.md，用于让 //go:embed 在没有
+    // 构建产物时也能编译。构建脚本会在构建前清理旧产物、只保留这个说明文件。
+    emptyOutDir: false,
     rollupOptions: {
       output: {
         manualChunks: {
