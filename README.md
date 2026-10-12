@@ -32,9 +32,34 @@
 
 课程内容依据本仓库资料整理：`go-basic`、`go-advance`、`go-practice` 的每篇文档对应一门课程，每节练习都标注来源章节，方便对照原文继续阅读。
 
-- Windows：支持构建内嵌界面的可执行文件，双击直接打开应用窗口（无控制台），优先通过 Edge 应用窗口显示。
-- Android：已提供原生 WebView 工程与 Go 移动绑定构建脚本；当前版本尚未完成 APK 与真机验收。
-- 开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
+**核心特点**
+
+- **引导式学习闭环**：先读懂概念，再改代码、真运行、答理解题，最后记笔记——每一步都有反馈。
+- **8 门课程 · 43 个练习**：Go 语言基础（语法 / 并发）、Go 语言进阶（语言深挖 / 标准库 / 工程实践）、Go 开发实战（网络开发 / 中间件 / 微服务）。
+- **真实运行代码**：练习由内置 Go 解释器在本机执行，限制导入符号、运行时间与输出大小，不开放文件与网络访问。
+- **可配置的 AI 导师**：支持 OpenAI Chat Completions 兼容接口，也可以接本机模型；结合当前课程、代码和笔记做引导式提问，只有你主动提问时才发送上下文。
+- **本地优先**：没有账号，学习进度、笔记和草稿都保存在本机，断网也能继续学。
+
+**界面预览**
+
+| 学习空间 | 探索课程 |
+|---|---|
+| ![学习空间](app/docs/screenshots/01-home.png) | ![探索课程](app/docs/screenshots/02-courses.png) |
+| **课程与练习**（标注来源章节） | **AI 导师**（可配置模型） |
+| ![课程与练习](app/docs/screenshots/03-lesson.png) | ![AI 导师](app/docs/screenshots/04-assistant.png) |
+
+| 偏好与 AI 设置 | 手机端 |
+|---|---|
+| ![偏好与 AI 设置](app/docs/screenshots/05-settings.png) | ![手机端](app/docs/screenshots/06-mobile.png) |
+
+**获取方式**
+
+- **Windows**：到 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 下载 `GoStudy.exe`，双击即用（也可从源码运行 `bash app/scripts/build-windows.sh` 自行构建）。
+- **Android**：原生 WebView 工程与 Go 移动绑定构建脚本已就绪，APK 构建方法见 [应用说明](app/README.md)。
+- **从源码运行**：[应用说明](app/README.md) 的「2.1 本机启动」给出完整命令。
+
+Android 说明：已提供原生 WebView 工程与 Go 移动绑定构建脚本；当前版本尚未完成 APK 与真机验收。
+开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
 
 ## 🛣️ Go 学习路线
 

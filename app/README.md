@@ -29,6 +29,12 @@
 
 GoStudy 把一个知识点拆成可以走完的小步骤：先读懂概念，修改代码，观察实际输出，再用一道理解题检查自己的判断。课程自由选择，不强制解锁；完成记录必须同时满足当前代码运行通过、理解题答对两个条件。
 
+![学习空间](docs/screenshots/01-home.png)
+
+![课程与练习](docs/screenshots/03-lesson.png)
+
+更多界面截图（课程目录、AI 导师、偏好设置、手机端）见 [docs/screenshots](docs/screenshots)。
+
 ```mermaid
 flowchart LR
     A[理解概念] --> B[修改代码]
