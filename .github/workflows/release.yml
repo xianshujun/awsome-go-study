@@ -94,8 +94,10 @@ jobs:
           [[ -x "$sdkmanager" ]] || { echo "未找到 sdkmanager，检查 ANDROID_HOME"; exit 1; }
           echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$sdk_root/ndk/27.2.12479018" >> "$GITHUB_ENV"
-          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          yes | "$sdkmanager" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          # 注意：不要用 `yes | sdkmanager`——安装结束时 yes 会收到 SIGPIPE，
+          # 在 pipefail 下会让整步失败。printf 写完即退出，不会报 broken pipe。
+          printf 'y\n%.0s' {1..200} | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" < /dev/null
           ls "$sdk_root/ndk"
 
       - name: 安装 gomobile 工具
