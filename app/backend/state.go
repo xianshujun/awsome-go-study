@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type storedSettings struct {
@@ -45,17 +46,21 @@ func newStore(dir string) (*store, error) {
 		return nil, err
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err != nil {
+	info, err := f.Stat()
+	if err != nil {
 		return nil, err
-	} else if info.Size() > 4<<20 {
-		return nil, errors.New("本地学习状态过大")
 	}
 	dec := json.NewDecoder(io.LimitReader(f, 4<<20))
+	// 文件损坏、过大或含多余数据时保留备份后重新开始：
+	// 否则用户会遇到「每次都启动失败、又不知道删哪个文件」的死局。
+	if info.Size() > 4<<20 {
+		return quarantine(s)
+	}
 	if err = dec.Decode(&s.value); err != nil {
-		return nil, fmt.Errorf("读取学习状态失败: %w", err)
+		return quarantine(s)
 	}
 	if err = dec.Decode(&struct{}{}); err != io.EOF {
-		return nil, errors.New("本地学习状态包含多余数据")
+		return quarantine(s)
 	}
 	if s.value.Progress.Completed == nil {
 		s.value.Progress.Completed = []string{}
@@ -71,6 +76,17 @@ func newStore(dir string) (*store, error) {
 	}
 	return s, nil
 }
+
+// quarantine 把无法解析的状态文件改名备份，并返回一个全新的空状态。
+func quarantine(s *store) (*store, error) {
+	backup := fmt.Sprintf("%s.corrupt-%s", s.path, time.Now().Format("20060102-150405"))
+	if err := os.Rename(s.path, backup); err != nil {
+		return nil, fmt.Errorf("本地学习状态无法读取，备份也失败: %w", err)
+	}
+	s.value = state{Progress: emptyProgress()}
+	return s, nil
+}
+
 func cloneState(v state) state {
 	p := v.Progress
 	p.Completed = append([]string{}, p.Completed...)

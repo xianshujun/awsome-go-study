@@ -76,7 +76,7 @@ func (e *Engine) Token() string { return e.token }
 
 // Quit 在用户主动退出时关闭，启动器据此结束进程。
 func (e *Engine) Quit() <-chan struct{} { return e.quit }
-func (e *Engine) requestQuit()           { e.quitOnce.Do(func() { close(e.quit) }) }
+func (e *Engine) requestQuit()          { e.quitOnce.Do(func() { close(e.quit) }) }
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")

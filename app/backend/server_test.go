@@ -261,6 +261,26 @@ func TestUTF8Truncation(t *testing.T) {
 		}
 	}
 }
+
+// 状态文件损坏时必须能自我恢复，否则用户会陷入永远启动失败。
+func TestCorruptStateRecovery(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte("{not json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e := testEngine(t, dir)
+	if w := callAPI(t, e, "/api/bootstrap", nil); w.Code != 200 {
+		t.Fatalf("损坏状态应可恢复启动，得到 %d", w.Code)
+	}
+	backups, err := filepath.Glob(filepath.Join(dir, "state.json.corrupt-*"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("应保留一份备份文件，得到 %v (%v)", backups, err)
+	}
+	if data, err := os.ReadFile(backups[0]); err != nil || string(data) != "{not json" {
+		t.Fatalf("备份内容应保持原样: %v %q", err, data)
+	}
+}
+
 func TestStartLoopbackOnly(t *testing.T) {
 	if _, err := Start(Options{DataDir: t.TempDir(), Addr: "0.0.0.0:0"}, nil); err == nil {
 		t.Fatal("public address accepted")
