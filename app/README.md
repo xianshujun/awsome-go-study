@@ -3,7 +3,7 @@
 > 面向对象：希望通过动手练习学习 Go 的开发者，以及需要维护本地学习应用的贡献者。
 > 阅读方式：先了解学习流程，再启动最小可运行版本，最后查看 Windows、Android 打包与运行边界。
 > 环境要求：开发构建使用 Go 1.25+、Node.js 22.12+、npm；已打包的 Windows 应用无需安装 Go 或 Node.js。Android 8.0+，构建还需要 Java 17 JDK、Android SDK 35 和 NDK。
-> 产品状态：8 门课程、43 个交互练习。Windows 可执行文件与 Android APK（debug 签名）已随 Releases 发布；Windows 实机体验持续验证中，Android 尚未在真机跑完整流程。
+> 产品状态：8 门课程、43 个交互练习。Windows 可执行文件、Android APK（正式签名）与 Linux 单文件已随 Releases 发布；Windows 与 Linux 已在本机验证，Android 安装与完整流程见「3.3 当前限制」。
 
 ## 目录
 
