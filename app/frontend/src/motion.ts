@@ -44,10 +44,10 @@ export function fadeIn(enabled: boolean, index = 0): MotionProps {
   };
 }
 
-/** 可点击卡片的悬停与按压反馈。位移交给 CSS 过渡，这里只做缩放，避免两套系统争抢 transform。 */
+/** 可点击卡片的悬停反馈。按压缩放交给 CSS 的 :active scale，这里不重复管。 */
 export function lift(enabled: boolean): MotionProps {
   if (!enabled) return {};
-  return { whileHover: { scale: 1.006 }, whileTap: { scale: 0.994 }, transition: springControl };
+  return { whileHover: { scale: 1.006 }, transition: springControl };
 }
 
 /** 视图切换：key 变化时重新挂载，只播入场（不做退场等待，避免切换被拖慢）。 */
@@ -66,6 +66,19 @@ export const sheetVariants = {
   shown: { opacity: 1, x: 0, transition: springPanel },
   out: { opacity: 0, x: 24, transition: fadeQuick },
 };
+
+/** 下拉关闭时向下退场，方向要和手势一致。 */
+export const sheetDropVariants = {
+  hidden: { opacity: 0, x: 40 },
+  shown: { opacity: 1, x: 0, transition: springPanel },
+  out: { opacity: 0, y: 240, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+};
+
+/** 下拉多少距离或在多快速度下松手，判定为关闭。 */
+export const dragDismiss = { distance: 110, velocity: 520 };
+
+/** 运行过程各阶段的停留时长（毫秒）。仅在允许动效时展开这些阶段。 */
+export const runPhases = { compile: 260, compare: 320, hold: 900 };
 
 export const scrimVariants = {
   hidden: { opacity: 0 },

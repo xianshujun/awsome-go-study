@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import CodeMirror from "@uiw/react-codemirror";
 import { go } from "@codemirror/lang-go";
 import ReactMarkdown from "react-markdown";
-import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  MotionConfig,
+  motion,
+  useDragControls,
+  useReducedMotion,
+} from "motion/react";
 import {
   Accordion,
   Dialog,
@@ -59,13 +66,16 @@ import type {
 } from "./api";
 import {
   dialogVariants,
+  dragDismiss,
   fadeIn,
   lift,
   rise,
+  runPhases,
   scrimVariants,
   sheetVariants,
   springControl,
   springMeter,
+  springPop,
   useMotionEnabled,
   viewEnter,
 } from "./motion";
@@ -112,6 +122,14 @@ const goKeywords = new Set([
   "return", "select", "struct", "switch", "type", "var", "make", "new", "nil", "true", "false",
 ]);
 
+type Phase = "idle" | "compile" | "execute" | "compare";
+
+const phaseLabel: Record<Exclude<Phase, "idle">, string> = {
+  compile: "正在编译…",
+  execute: "正在本地执行…",
+  compare: "比对期望输出…",
+};
+
 type Kind = "kw" | "str" | "num" | "com" | "fn" | "plain";
 type Token = { text: string; kind: Kind };
 
@@ -129,6 +147,39 @@ function tokenizeGo(source: string): Token[] {
     else tokens.push({ text, kind: "plain" });
   }
   return tokens;
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 共享元素转场：点中的元素带上 view-transition-name，由浏览器把"旧卡片 → 新页面"
+ * 连成一帧动画。平台不支持（含 jsdom）或用户要求减少动效时，退化成直接切换。
+ */
+function withViewTransition(update: () => void, source?: HTMLElement) {
+  const doc = document as Document & {
+    startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+  };
+  const clear = () => {
+    document
+      .querySelectorAll<HTMLElement>("[style*='view-transition-name']")
+      .forEach((node) => {
+        node.style.viewTransitionName = "";
+      });
+  };
+  clear();
+  if (typeof doc.startViewTransition !== "function") {
+    update();
+    return;
+  }
+  if (source) source.style.viewTransitionName = "course-hero";
+  void doc.startViewTransition(() => flushSync(update)).finished.finally(clear);
+}
+
+/** 安卓 WebView 上给成功与失败一点触觉区分；其他平台静默跳过。 */
+function haptic(pattern: number | number[]) {
+  if (typeof navigator.vibrate === "function" && /android/i.test(navigator.userAgent)) {
+    navigator.vibrate(pattern);
+  }
 }
 
 /** 把 token 展开成逐字符序列，打字动画只推进一个下标，着色不会因为半个字符串而错乱。 */
@@ -155,6 +206,8 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const [lessonId, setLessonId] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // 展开动画要从用户点的那颗按钮长出来，所以记住屏幕坐标
+  const [assistantOrigin, setAssistantOrigin] = useState<{ x: number; y: number }>();
   const [assistantCode, setAssistantCode] = useState<string>();
   const [toast, setToast] = useState("");
   const [quit, setQuit] = useState(false);
@@ -198,6 +251,10 @@ export function App() {
     setView(id);
     window.scrollTo(0, 0);
   };
+  const openAssistant = useCallback((open: boolean, origin?: { x: number; y: number }) => {
+    if (open && origin) setAssistantOrigin(origin);
+    setAssistantOpen(open);
+  }, []);
 
   return (
     <MotionConfig reducedMotion={motionPolicy(reduce)}>
@@ -220,7 +277,8 @@ export function App() {
             view={view}
             onNavigate={navigate}
             assistantOpen={assistantOpen}
-            onAssistant={setAssistantOpen}
+            assistantOrigin={assistantOrigin}
+            onAssistant={openAssistant}
             notesCount={Object.values(data.progress.notes || {}).filter(Boolean).length}
               lessonId={lessonId}
               assistantCode={assistantCode}
@@ -258,6 +316,7 @@ function Shell({
   view,
   onNavigate,
   assistantOpen,
+  assistantOrigin,
   onAssistant,
   notesCount,
   lessonId,
@@ -275,7 +334,8 @@ function Shell({
   view: View;
   onNavigate: (view: View) => void;
   assistantOpen: boolean;
-  onAssistant: (open: boolean) => void;
+  assistantOrigin?: { x: number; y: number };
+  onAssistant: (open: boolean, origin?: { x: number; y: number }) => void;
   notesCount: number;
   lessonId: string;
   assistantCode?: string;
@@ -303,10 +363,16 @@ function Shell({
   const masterCourses = data.courses.filter((course) =>
     course.lessonIds.every((id) => completed.includes(id)),
   ).length;
+  /** 首页课程卡 → 课程页是低频的跨层级跳转，值得一段共享元素转场。 */
+  const openFrom = (id: string, source?: HTMLElement) => {
+    if (motionOn && source) withViewTransition(() => onOpenLesson(id), source);
+    else onOpenLesson(id);
+  };
 
   return (
     <div className="app">
       <header className="topbar">
+        <span className="topbar-edge" aria-hidden="true" />
         <div className="topbar-inner">
           <button className="brand" aria-label="GoStudy 首页" onClick={() => onNavigate("home")}>
             <Logo />
@@ -333,7 +399,10 @@ function Shell({
               <WifiOff size={13} />
               离线可用
             </span>
-            <button className="assistant-trigger" onClick={() => onAssistant(true)}>
+            <button
+              className="assistant-trigger"
+              onClick={(event) => onAssistant(true, { x: event.clientX, y: event.clientY })}
+            >
               <MessagesSquare size={15} />
               AI 导师
             </button>
@@ -453,7 +522,7 @@ function Shell({
                     course={course}
                     index={index}
                     completed={completed}
-                    onOpen={onOpenLesson}
+                    onOpen={openFrom}
                     motionOn={motionOn}
                   />
                 ))}
@@ -479,7 +548,10 @@ function Shell({
                   AI 导师可以解释概念、给一点线索、陪你看懂报错；模型由你指定，课程本身完全离线。
                 </p>
               </div>
-              <button className="text-button" onClick={() => onAssistant(true)}>
+              <button
+                className="text-button"
+                onClick={(event) => onAssistant(true, { x: event.clientX, y: event.clientY })}
+              >
                 打开导师 <ArrowRight size={16} />
               </button>
             </motion.section>
@@ -567,7 +639,7 @@ function Shell({
             onProgress={onProgress}
             onNext={onOpenLesson}
             onCourses={() => onNavigate("courses")}
-            onAI={() => onAssistant(true)}
+            onAI={(origin) => onAssistant(true, origin)}
             onNotify={onNotify}
             motionOn={motionOn}
           />
@@ -602,6 +674,7 @@ function Shell({
                 : data.progress.drafts?.[next.id]
             }
             settings={data.settings}
+            origin={assistantOrigin}
             onClose={() => onAssistant(false)}
             onSettings={() => {
               onNavigate("settings");
@@ -853,7 +926,7 @@ function CourseCard({
   course: Course;
   index: number;
   completed: string[];
-  onOpen: (id: string) => void;
+  onOpen: (id: string, source?: HTMLElement) => void;
   motionOn: boolean;
 }) {
   const Icon = icons[index % icons.length];
@@ -861,8 +934,11 @@ function CourseCard({
   return (
     <motion.button
       className="course-card"
-      onClick={() =>
-        onOpen(course.lessonIds.find((id) => !completed.includes(id)) || course.lessonIds[0])
+      onClick={(event) =>
+        onOpen(
+          course.lessonIds.find((id) => !completed.includes(id)) || course.lessonIds[0],
+          event.currentTarget,
+        )
       }
       {...rise(motionOn, index)}
       {...lift(motionOn)}
@@ -923,7 +999,7 @@ function LearningWorkspace({
   onProgress: (p: Progress) => void;
   onNext: (id: string) => void;
   onCourses: () => void;
-  onAI: () => void;
+  onAI: (origin: { x: number; y: number }) => void;
   onNotify: (s: string) => void;
   motionOn: boolean;
 }) {
@@ -936,6 +1012,8 @@ function LearningWorkspace({
   const [hint, setHint] = useState(0);
   const [answer, setAnswer] = useState<number>();
   const [completing, setCompleting] = useState(false);
+  // idle → compile → execute → compare：把"跑一次代码"拆成看得见的过程
+  const [phase, setPhase] = useState<Phase>("idle");
   const [saved, setSaved] = useState("");
   const lastSaved = useRef({ code, note });
   const savePromise = useRef<Promise<Progress> | undefined>(undefined);
@@ -983,12 +1061,23 @@ function LearningWorkspace({
     setRunning(true);
     setError("");
     setResult(undefined);
+    setPhase(motionOn ? "compile" : "execute");
     try {
+      if (motionOn) await wait(runPhases.compile);
+      setPhase("execute");
       const value = await api<RunResult>("run", { lessonId: lesson.id, code });
+      if (motionOn && value.passed) {
+        setPhase("compare");
+        await wait(runPhases.compare);
+      }
       setResult(value);
       setTab("task");
+      setPhase("idle");
+      haptic(value.passed ? [12] : [8, 40, 8]);
     } catch (err) {
       setError((err as Error).message);
+      setPhase("idle");
+      haptic([8, 40, 8]);
     } finally {
       setRunning(false);
     }
@@ -1007,12 +1096,22 @@ function LearningWorkspace({
       });
       onProgress(progress);
       onNotify("这一课，真正理解了。进度已保存。");
+      haptic([10, 30, 14]);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setCompleting(false);
     }
   };
+  // 逐行比对：通过时每一行都能对上期望输出，这个反馈带信息量而不只是装饰
+  const expectedLines = useMemo(
+    () => lesson.expectedOutput.replace(/\n$/, "").split("\n"),
+    [lesson.expectedOutput],
+  );
+  const actualLines = useMemo(
+    () => (result?.output ?? "").replace(/\n$/, "").split("\n"),
+    [result?.output],
+  );
   const index = data.lessons.findIndex((item) => item.id === lesson.id);
   const next = data.lessons[index + 1];
   const done = data.progress.completed?.includes(lesson.id);
@@ -1053,9 +1152,13 @@ function LearningWorkspace({
             </span>
             <span className="meta-divider" />
             <div className="lesson-progress">
-              <span className="progress-chip">
+              <motion.span
+                className="progress-chip"
+                animate={done && motionOn ? { scale: [1, 1.05, 1] } : { scale: 1 }}
+                transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+              >
                 已完成 {completedCount} / {data.lessons.length} 个练习
-              </span>
+              </motion.span>
               <Meter.Root
                 className="meter slim"
                 value={Math.round((completedCount / data.lessons.length) * 100)}
@@ -1077,7 +1180,10 @@ function LearningWorkspace({
             </p>
           )}
         </div>
-        <button className="button secondary" onClick={onAI}>
+        <button
+          className="button secondary"
+          onClick={(event) => onAI({ x: event.clientX, y: event.clientY })}
+        >
           <MessagesSquare size={16} />
           和导师一起想
         </button>
@@ -1205,7 +1311,16 @@ function LearningWorkspace({
                             {String.fromCharCode(65 + i)}
                           </motion.span>
                           {option}
-                          {picked && i === lesson.quiz.answer && <Check size={16} />}
+                          {picked && i === lesson.quiz.answer && (
+                            <motion.span
+                              className="quiz-mark"
+                              initial={motionOn ? { scale: 0.4, opacity: 0 } : false}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={springPop}
+                            >
+                              <Check size={16} />
+                            </motion.span>
+                          )}
                         </RadioGroup.Item>
                       );
                     })}
@@ -1344,27 +1459,50 @@ function LearningWorkspace({
               <Terminal size={15} />
               运行结果
             </span>
-            {result && (
+            {phase !== "idle" ? (
+              <span className="console-phase-chip">
+                <LoaderCircle className="spin" size={11} />
+                {phaseLabel[phase]}
+              </span>
+            ) : result ? (
               <span className={result.passed ? "result-success" : "muted"}>
                 {result.passed ? "挑战通过" : result.error ? "需要调整" : "继续试试"} ·{" "}
                 {result.durationMs} ms
               </span>
-            )}
+            ) : null}
           </div>
           <div
             className={`console ${result?.error || error ? "console-error" : ""}`}
             aria-live="polite"
           >
-            {running ? (
-              <span className="muted">正在本地执行你的代码…</span>
+            {phase !== "idle" ? (
+              <div className="console-phase">
+                <LoaderCircle className="spin" size={14} />
+                {phaseLabel[phase]}
+              </div>
             ) : error ? (
               <pre>{error}</pre>
             ) : result ? (
               <motion.div {...fadeIn(motionOn)}>
-                <pre>
-                  {result.output}
-                  {result.error && `\n${result.error}`}
-                </pre>
+                {result.error ? (
+                  <pre>{result.error}</pre>
+                ) : (
+                  <div className="console-lines">
+                    {actualLines.map((line, i) => {
+                      const matched = expectedLines[i] === line;
+                      return (
+                        <div className="console-line" key={i}>
+                          {result.passed ? (
+                            <Check size={12} className="console-line-mark" />
+                          ) : (
+                            <span className={`console-line-dot ${matched ? "" : "off"}`} />
+                          )}
+                          <span>{line || "\u00a0"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {!result.passed && !result.error && (
                   <p className="console-tip">运行成功。再对照左侧期望输出调整一下。</p>
                 )}
@@ -1417,6 +1555,7 @@ function Assistant({
   lesson,
   code,
   settings,
+  origin,
   onClose,
   onSettings,
   motionOn,
@@ -1424,6 +1563,7 @@ function Assistant({
   lesson: Lesson;
   code?: string;
   settings: Settings;
+  origin?: { x: number; y: number };
   onClose: () => void;
   onSettings: () => void;
   motionOn: boolean;
@@ -1434,6 +1574,16 @@ function Assistant({
   const [error, setError] = useState("");
   const abort = useRef<AbortController | undefined>(undefined);
   const bottom = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const dragControls = useDragControls();
+  // 从触发按钮的位置长出来：把屏幕坐标换算成面板内部的 transform-origin。
+  // 用 layout 阶段写入，保证首帧就已经在正确的原点。
+  useLayoutEffect(() => {
+    const node = panel.current;
+    if (!node || !origin) return;
+    const rect = node.getBoundingClientRect();
+    node.style.transformOrigin = `${origin.x - rect.left}px ${origin.y - rect.top}px`;
+  }, [origin]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
@@ -1482,13 +1632,28 @@ function Assistant({
           </Dialog.Overlay>
           <Dialog.Content asChild forceMount aria-label="AI 导师">
             <motion.aside
+              ref={panel}
               className="assistant-panel"
               variants={sheetVariants}
               initial={motionOn ? "hidden" : false}
               animate="shown"
               exit="out"
+              drag={motionOn ? "y" : false}
+              dragListener={false}
+              dragControls={dragControls}
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0, bottom: 0.55 }}
+              onDragEnd={(_, info) => {
+                // 下拉够远或够快就关闭，方向与手势一致
+                if (info.offset.y > dragDismiss.distance || info.velocity.y > dragDismiss.velocity) {
+                  onClose();
+                }
+              }}
             >
-              <div className="assistant-header">
+              <div
+                className="assistant-header"
+                onPointerDown={(event) => dragControls.start(event)}
+              >
                 <div className="ai-avatar">
                   <MessagesSquare size={19} />
                 </div>
