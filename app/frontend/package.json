@@ -11,13 +11,19 @@
   },
   "dependencies": {
     "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/language": "^6.13.1",
+    "@lezer/highlight": "^1.2.5",
     "@uiw/react-codemirror": "^4.23.10",
     "lucide-react": "^0.468.0",
+    "motion": "^14.1.0",
+    "radix-ui": "^1.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.3"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@testing-library/jest-dom": "^6.10.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",

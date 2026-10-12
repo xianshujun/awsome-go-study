@@ -173,7 +173,8 @@ describe('学习空间的关键交互', () => {
     expect(within(dialog).getByRole('textbox', { name: '向 AI 导师提问' })).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: '发送消息' })).toBeDisabled();
     await user.click(within(dialog).getByRole('button', { name: '配置 AI 导师' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // 抽屉带退场动画，等它真正卸载再断言关闭。
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: '测试已保存的连接' })).toBeDisabled();
 
     const key = screen.getByLabelText(/^API Key/);

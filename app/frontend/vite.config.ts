@@ -13,6 +13,9 @@ export default defineConfig({
         manualChunks: {
           editor: ["@uiw/react-codemirror", "@codemirror/lang-go"],
           markdown: ["react-markdown"],
+          // 动效与无障碍组件各自成块：都是本地文件，拆开只为让体积变化看得清。
+          motion: ["motion"],
+          radix: ["radix-ui"],
         },
       },
     },
