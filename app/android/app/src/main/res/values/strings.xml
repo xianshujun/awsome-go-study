@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Go Study</string>
+    <string name="starting">正在启动本地学习引擎…</string>
+    <string name="startup_failed">本地学习引擎启动失败，请关闭应用后重试。</string>
+    <string name="page_failed">本地页面加载失败，请关闭应用后重试。</string>
+</resources>

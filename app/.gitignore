@@ -1,0 +1,19 @@
+# 可重建的前端、Go 和 Android 输出
+/frontend/node_modules/
+/frontend/*.tsbuildinfo
+/web/dist/
+/release/
+/android/.gradle/
+/android/.kotlin/
+/android/build/
+/android/app/build/
+/android/app/libs/*.aar
+/android/local.properties
+/scripts/.tools/
+
+# 本地开发数据和签名材料
+/.gostudy/
+*.keystore
+*.jks
+.env
+.env.local

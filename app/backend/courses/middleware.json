@@ -1,0 +1,183 @@
+{
+  "order": 7,
+  "course": {
+    "id": "middleware",
+    "title": "Go 开发实战 · 中间件与工具集成",
+    "description": "对照 go-practice/go-middleware.md：中间件链、限流熔断重试超时，把容错写成可运行的小模型。",
+    "level": "实战",
+    "duration": "约 55 分钟",
+    "accent": "#0b8055"
+  },
+  "lessons": [
+    {
+      "id": "middleware-chain",
+      "title": "中间件与装饰器链",
+      "description": "用高阶函数把通用逻辑包在业务外面，看清注册顺序如何决定执行顺序。",
+      "duration": 10,
+      "source": "go-practice/go-middleware.md · 第一章 HTTP 中间件",
+      "concept": "中间件（middleware）是包在业务处理外面的通用逻辑，比如日志、认证、限流。它的本质是一个高阶函数：接收一个 `Handler`、返回一个新的 `Handler`，用新函数把原函数包起来，因此也叫装饰器（decorator）模式。Go 没有注解魔法，中间件就是普通函数，看得懂、也测得了。\n\n多个中间件用 `chain` 组合：从最后一个开始往前包，所以参数里越靠前的越在外层，最先收到请求、最后拿到响应。顺序决定语义：Recover、RequestID 这类要放最外层，认证必须早于业务。\n\n> ⚠️ **常见坑**：把注册顺序当成随手写的。先注册的在最外层；顺序错了，日志里看到的会是被改写过的请求，认证也可能被业务绕过。\n\n示例用 `func(string) string` 代替 `http.Handler`，只保留「包裹与顺序」这一核心机制，真实的 HTTP 中间件写法见原文第一章。",
+      "example": "package main\n\nimport \"fmt\"\n\ntype Handler func(string) string\ntype Middleware func(Handler) Handler\n\n// chain 按注册顺序包裹：先注册的在外层，最先收到请求、最后返回响应。\nfunc chain(h Handler, mws ...Middleware) Handler {\n\tfor i := len(mws) - 1; i >= 0; i-- {\n\t\th = mws[i](h)\n\t}\n\treturn h\n}\n\n// withTrace 在最外层记录请求进出，用来观察包裹顺序。\nfunc withTrace(next Handler) Handler {\n\treturn func(req string) string {\n\t\tfmt.Println(\"[trace] 进入\", req)\n\t\tdefer fmt.Println(\"[trace] 离开\")\n\t\treturn next(req)\n\t}\n}\n\n// withAuth 先补上调用方身份，再把请求交给内层业务。\nfunc withAuth(next Handler) Handler {\n\treturn func(req string) string {\n\t\treturn next(\"user=7 \" + req)\n\t}\n}\n\nfunc main() {\n\tbiz := func(req string) string { return \"订单已创建:\" + req }\n\tfmt.Println(chain(biz, withTrace, withAuth)(\"order=1001\"))\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\ntype Handler func(string) string\ntype Middleware func(Handler) Handler\n\n// chain 按注册顺序包裹：先注册的在外层，最先收到请求、最后返回响应。\nfunc chain(h Handler, mws ...Middleware) Handler {\n\tfor i := len(mws) - 1; i >= 0; i-- {\n\t\th = mws[i](h)\n\t}\n\treturn h\n}\n\n// withTrace 在最外层记录请求进出，用来观察包裹顺序。\nfunc withTrace(next Handler) Handler {\n\treturn func(req string) string {\n\t\tfmt.Println(\"[trace] 进入\", req)\n\t\tdefer fmt.Println(\"[trace] 离开\")\n\t\treturn next(req)\n\t}\n}\n\n// withAuth 先补上调用方身份，再把请求交给内层业务。\nfunc withAuth(next Handler) Handler {\n\treturn func(req string) string {\n\t\treturn next(\"user=7 \" + req)\n\t}\n}\n\nfunc main() {\n\tbiz := func(req string) string { return \"订单已创建:\" + req }\n\tfmt.Println(chain(biz, withTrace)(\"order=1001\")) // 只挂了日志，认证还没接进链里\n}",
+      "task": "现在链里只挂了 `withTrace`。把 `withAuth` 也接进去，让业务函数收到的请求带上 `user=7 ` 前缀，同时保持 `withTrace` 在最外层（第一行日志仍然是原始的 `order=1001`）。输出：\n\n```\n[trace] 进入 order=1001\n[trace] 离开\n订单已创建:user=7 order=1001\n```",
+      "expectedOutput": "[trace] 进入 order=1001\n[trace] 离开\n订单已创建:user=7 order=1001",
+      "hints": [
+        "`chain` 从参数最后往前包：`chain(biz, withTrace, withAuth)` 表示 withTrace 在外、withAuth 在内。",
+        "withAuth 负责改写请求：`return next(\"user=7 \" + req)`，把它挂在 withTrace 后面。",
+        "第一行日志应该仍是 `[trace] 进入 order=1001`；如果变成 `user=7 order=1001`，说明 withTrace 被包进了里层。"
+      ],
+      "quiz": {
+        "question": "中间件链 `chain(biz, A, B)` 中，下面哪种说法正确？",
+        "options": [
+          "A 在内层，B 先收到请求",
+          "A 在最外层，请求先经过 A 再经过 B",
+          "执行顺序与注册顺序无关",
+          "B 一定是业务函数"
+        ],
+        "answer": 1,
+        "explanation": "chain 从参数末尾往前逐个包裹，所以先注册的 A 在最外层，最先收到请求、最后返回响应。"
+      },
+      "takeaways": [
+        "中间件就是 `func(next Handler) Handler` 形式的高阶函数组合。",
+        "注册顺序决定包裹顺序：先注册的在最外层，最先收到请求。",
+        "Recover、RequestID 适合放最外层，认证必须早于业务。",
+        "中间件是纯函数，可以自由组合、单独测试。"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "日志与可观测性",
+      "description": "结构化日志 + 请求 ID 贯穿，让一次请求的每个环节都能被串起来。",
+      "duration": 10,
+      "source": "go-practice/go-middleware.md · 第五章 配置、日志与可观测性",
+      "concept": "可观测性（observability）回答的是「线上出问题，凭什么能查出来」：日志（离散事件）、指标（聚合数值）、链路追踪（一整条请求链路）是三支柱，本课聚焦最基础的日志。\n\n结构化日志（把关键信息写成固定 key=value 字段的日志）比自由文本更容易被采集系统检索、聚合和告警。单条日志再规范，也需要一根线把一次请求的所有环节串起来：请求 ID（request id，也叫 trace id）在入口生成，随调用一路显式传递；排障时按它一搜，整条链路的事件都在。\n\n> ⚠️ **常见坑**：每个环节各自生成新 ID，或者只把 ID 记在入口那一条日志里。前者让链路断裂，后者下游日志根本对不上，排障时等于白打。\n\n> 💡 **技巧**：日志级别按「需要谁介入」划分：info 记关键业务节点，warn 记可恢复异常，error 才需要人处理；什么都打 error 会让告警失灵。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// field 是结构化日志的一个键值对，机器解析比自由文本容易得多。\ntype field struct {\n\tkey   string\n\tvalue string\n}\n\n// logLine 固定字段顺序拼装日志：stage 与 request_id 每个环节都要带上。\nfunc logLine(stage, rid string, fields ...field) string {\n\tparts := []string{\"stage=\" + stage, \"request_id=\" + rid}\n\tfor _, f := range fields {\n\t\tparts = append(parts, f.key+\"=\"+f.value)\n\t}\n\treturn strings.Join(parts, \" \")\n}\n\n// handleOrder 模拟一次下单：requestID 从入口一路传到下游环节。\nfunc handleOrder(rid string) {\n\tfmt.Println(logLine(\"gateway\", rid, field{\"path\", \"/orders\"}))\n\tfmt.Println(logLine(\"order\", rid, field{\"action\", \"create\"}))\n\tfmt.Println(logLine(\"stock\", rid, field{\"sku\", \"A-1\"}))\n}\n\nfunc main() {\n\t// 入口只生成一次请求 ID，整条链路共用。\n\thandleOrder(\"req-9001\")\n}",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// field 是结构化日志的一个键值对，机器解析比自由文本容易得多。\ntype field struct {\n\tkey   string\n\tvalue string\n}\n\n// logLine 固定字段顺序拼装日志：stage 与 request_id 每个环节都要带上。\nfunc logLine(stage, rid string, fields ...field) string {\n\tparts := []string{\"stage=\" + stage, \"request_id=\" + rid}\n\tfor _, f := range fields {\n\t\tparts = append(parts, f.key+\"=\"+f.value)\n\t}\n\treturn strings.Join(parts, \" \")\n}\n\n// handleOrder 模拟一次下单：requestID 从入口一路传到下游环节。\nfunc handleOrder(rid string) {\n\tfmt.Println(logLine(\"gateway\", rid, field{\"path\", \"/orders\"}))\n\tfmt.Println(logLine(\"order\", \"req-0002\", field{\"action\", \"create\"}))\n\tfmt.Println(logLine(\"stock\", \"req-0003\", field{\"sku\", \"A-1\"}))\n}\n\nfunc main() {\n\t// 入口只生成一次请求 ID，整条链路共用。\n\thandleOrder(\"req-9001\")\n}",
+      "task": "把 `handleOrder` 里写死的 `req-0002`、`req-0003` 改成沿用传入的 `rid`，让三条日志的 request_id 都是 `req-9001`。输出：\n\n```\nstage=gateway request_id=req-9001 path=/orders\nstage=order request_id=req-9001 action=create\nstage=stock request_id=req-9001 sku=A-1\n```",
+      "expectedOutput": "stage=gateway request_id=req-9001 path=/orders\nstage=order request_id=req-9001 action=create\nstage=stock request_id=req-9001 sku=A-1",
+      "hints": [
+        "`handleOrder(rid string)` 已经把请求 ID 当参数传进来了，订单和库存两行直接用它即可。",
+        "把 `\"req-0002\"`、`\"req-0003\"` 两个字符串换成变量 `rid`。",
+        "三条日志的 stage 各不相同，但 request_id 必须完全一致，这才是同一条链路。"
+      ],
+      "quiz": {
+        "question": "为什么日志里要带上 request_id？",
+        "options": [
+          "让日志文件变得更大，方便长期保存",
+          "把同一次请求在各服务、各环节产生的日志串起来",
+          "提升程序的运行速度",
+          "可以代替日志级别"
+        ],
+        "answer": 1,
+        "explanation": "request_id 是贯穿一次请求全链路的唯一标识，排查问题时按它检索就能还原整条调用链。"
+      },
+      "takeaways": [
+        "结构化日志用 key=value 字段表达信息，便于采集与检索。",
+        "request id 在入口生成，再一路显式传递给下游每个环节。",
+        "日志级别按「需要谁介入」划分，避免把所有异常都打成 error。",
+        "可观测性由日志、指标、链路追踪共同组成，本课只覆盖日志一层。"
+      ]
+    },
+    {
+      "id": "rate-limit",
+      "title": "限流：令牌桶模型",
+      "description": "用令牌数与桶容量模拟令牌桶，观察每个请求放行还是被限流。",
+      "duration": 12,
+      "source": "go-practice/go-middleware.md · 第七章 容错：限流 / 熔断 / 重试 / 超时",
+      "concept": "限流（rate limiting）是在流量超过处理能力时主动拒绝一部分请求，保护自己不被突发流量打垮。常见算法有固定窗口、滑动窗口、漏桶和令牌桶（token bucket）：桶里最多放 `burst` 个令牌，按固定速率补充，请求到达就取走一个，取不到就拒绝。\n\n两个参数决定行为：补充速率决定长期平均吞吐，桶容量决定能扛住多大的瞬时突发。示例只用「当前令牌数 + 容量」两个计数器和每次请求附带的补充数来模拟，逻辑与真实令牌桶一致。\n\n> ⚠️ **常见坑**：多实例部署还用进程内内存限流，每个实例各限各的，总配额会变成「单机配额 × 实例数」。生产上要用 Redis + Lua 这类共享存储做集中式限流。\n\n> 💡 **技巧**：被限流的请求要返回可识别的错误（如 HTTP 429）和重试提示，上游才能做退避或降级，而不是一直重试到黑。",
+      "example": "package main\n\nimport \"fmt\"\n\n// bucket 模拟令牌桶：容量 burst，请求取走令牌，取不到就被限流。\ntype bucket struct {\n\ttokens int\n\tburst  int\n}\n\n// allow 先补令牌再取一个：refill 表示距上次请求新增的令牌数。\nfunc (b *bucket) allow(refill int) bool {\n\tb.tokens += refill\n\tif b.tokens > b.burst {\n\t\tb.tokens = b.burst // 桶装满后多出来的令牌直接丢弃\n\t}\n\tif b.tokens == 0 {\n\t\treturn false // 没有令牌就拒绝，保护后端\n\t}\n\tb.tokens--\n\treturn true\n}\n\nfunc main() {\n\tb := &bucket{tokens: 3, burst: 3} // 桶初始是满的\n\t// 每个元素是本次请求到达前补充的令牌数（模拟时间流逝）。\n\tfor i, refill := range []int{0, 0, 0, 1, 0} {\n\t\tif b.allow(refill) {\n\t\t\tfmt.Println(\"请求\", i+1, \"放行\")\n\t\t} else {\n\t\t\tfmt.Println(\"请求\", i+1, \"限流\")\n\t\t}\n\t}\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// bucket 模拟令牌桶：容量 burst，请求取走令牌，取不到就被限流。\ntype bucket struct {\n\ttokens int\n\tburst  int\n}\n\n// allow 先补令牌再取一个：refill 表示距上次请求新增的令牌数。\nfunc (b *bucket) allow(refill int) bool {\n\tb.tokens += refill\n\tif b.tokens > b.burst {\n\t\tb.tokens = b.burst // 桶装满后多出来的令牌直接丢弃\n\t}\n\t// 少了「桶空就拒绝」的判断：所有请求都被放行了。\n\tb.tokens--\n\treturn true\n}\n\nfunc main() {\n\tb := &bucket{tokens: 3, burst: 3} // 桶初始是满的\n\t// 每个元素是本次请求到达前补充的令牌数（模拟时间流逝）。\n\tfor i, refill := range []int{0, 0, 0, 1, 0} {\n\t\tif b.allow(refill) {\n\t\t\tfmt.Println(\"请求\", i+1, \"放行\")\n\t\t} else {\n\t\t\tfmt.Println(\"请求\", i+1, \"限流\")\n\t\t}\n\t}\n}",
+      "task": "`allow` 现在无论桶里有没有令牌都放行。补上「桶空就拒绝」的判断：令牌为 0 时返回 false 且不扣减令牌，让第 5 个请求被限流。输出：\n\n```\n请求 1 放行\n请求 2 放行\n请求 3 放行\n请求 4 放行\n请求 5 限流\n```",
+      "expectedOutput": "请求 1 放行\n请求 2 放行\n请求 3 放行\n请求 4 放行\n请求 5 限流",
+      "hints": [
+        "在 `b.tokens--` 之前加判断：`b.tokens == 0` 时直接 `return false`。",
+        "补充令牌发生在请求到达时，所以判断要放在补令牌和容量钳制之后。",
+        "第 4 个请求补到 1 个令牌被放行，第 5 个请求桶是空的，应当输出「请求 5 限流」。"
+      ],
+      "quiz": {
+        "question": "令牌桶的容量 burst 参数决定的是什么？",
+        "options": [
+          "令牌补充的长期平均速率",
+          "能容忍的瞬时突发大小",
+          "被限流请求返回的状态码",
+          "桶里令牌的过期时间"
+        ],
+        "answer": 1,
+        "explanation": "补充速率决定长期平均吞吐，容量决定桶最多能攒多少令牌，也就是能容忍多大的瞬时突发。"
+      },
+      "takeaways": [
+        "限流保护自己不被突发流量打垮，令牌桶是最常用的实现之一。",
+        "速率决定长期平均吞吐，容量 burst 决定能容忍的突发大小。",
+        "桶里取不到令牌就拒绝，并返回可识别的状态码（如 429）。",
+        "多实例必须用共享存储做集中式限流，否则总配额翻倍。"
+      ]
+    },
+    {
+      "id": "circuit-breaker",
+      "title": "熔断状态机",
+      "description": "用状态变量模拟闭合、打开、半开三态，观察故障时如何流转。",
+      "duration": 12,
+      "source": "go-practice/go-middleware.md · 第七章 容错：限流 / 熔断 / 重试 / 超时",
+      "concept": "熔断（circuit breaker，失败时快速拒绝避免拖垮依赖）是模仿保险丝的容错模式：下游故障时继续调用只会把调用方也拖垮，于是「跳闸」直接快速失败，给下游留出恢复时间。\n\n熔断器有三个状态：闭合（closed，正常放行并统计失败）、打开（open，直接拒绝、不再调用下游）、半开（half-open，冷却结束后放少量试探请求，成功就恢复闭合，失败就重新打开）。\n\n示例用状态变量模拟状态机：连续失败到阈值就打开，打开期间全部快速失败，冷却结束进入半开，由一个试探请求决定去向。真实实现的冷却时间由定时器控制，这里用请求序号代替，机制完全一样。\n\n> ⚠️ **常见坑**：把熔断当限流。限流保护自己不被流量打垮，熔断保护自己不被下游故障拖垮；而且打开状态必须真的快速失败，如果还去调下游，熔断就形同虚设。\n> 💡 **技巧**：熔断要配合降级：打开期间返回兜底数据（缓存快照、默认值），比直接报错体验好得多。",
+      "example": "package main\n\nimport \"fmt\"\n\n// 熔断器三态：闭合 正常调用 → 打开 快速失败 → 半开 试探能否恢复。\nfunc main() {\n\tstate, fails := \"闭合\", 0\n\thandle := func(ok bool) string {\n\t\tswitch {\n\t\tcase state == \"打开\":\n\t\t\treturn \"快速失败\" // 故障未恢复前直接拒绝，别再拖垮依赖\n\t\tcase state == \"半开\" && ok:\n\t\t\tstate, fails = \"闭合\", 0\n\t\t\treturn \"试探成功 恢复闭合\"\n\t\tcase state == \"半开\":\n\t\t\tstate = \"打开\"\n\t\t\treturn \"试探失败 重新打开\"\n\t\tcase ok:\n\t\t\tfails = 0\n\t\t\treturn \"调用成功\"\n\t\tdefault:\n\t\t\tfails++\n\t\t\tif fails >= 2 { // 连续失败 2 次触发熔断\n\t\t\t\tstate = \"打开\"\n\t\t\t\treturn \"调用失败 熔断打开\"\n\t\t\t}\n\t\t\treturn \"调用失败\"\n\t\t}\n\t}\n\tfor i, ok := range []bool{false, false, false, false, true} {\n\t\tif i == 4 { state = \"半开\" } // 模拟冷却结束，放行一个试探请求\n\t\tbefore := state               // 先记下到达时的状态，再让 handle 推进它\n\t\tfmt.Println(\"请求\", i+1, before, handle(ok))\n\t}\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// 熔断器三态：闭合 正常调用 → 打开 快速失败 → 半开 试探能否恢复。\nfunc main() {\n\tstate, fails := \"闭合\", 0\n\thandle := func(ok bool) string {\n\t\tswitch {\n\t\tcase state == \"打开\":\n\t\t\treturn \"快速失败\" // 故障未恢复前直接拒绝，别再拖垮依赖\n\t\tcase state == \"半开\" && ok:\n\t\t\tstate, fails = \"闭合\", 0\n\t\t\treturn \"试探成功 恢复闭合\"\n\t\tcase state == \"半开\":\n\t\t\tstate = \"打开\"\n\t\t\treturn \"试探失败 重新打开\"\n\t\tcase ok:\n\t\t\tfails = 0\n\t\t\treturn \"调用成功\"\n\t\tdefault:\n\t\t\tfails++\n\t\t\tif fails >= 2 { // 连续失败 2 次触发熔断\n\t\t\t\tstate = \"打开\"\n\t\t\t\treturn \"调用失败 熔断打开\"\n\t\t\t}\n\t\t\treturn \"调用失败\"\n\t\t}\n\t}\n\tfor i, ok := range []bool{false, false, false, false, true} {\n\t\tif i == 2 { state = \"半开\" } // 冷却还没到就试探了\n\t\tbefore := state               // 先记下到达时的状态，再让 handle 推进它\n\t\tfmt.Println(\"请求\", i+1, before, handle(ok))\n\t}\n}",
+      "task": "把模拟冷却的判断从 `if i == 2` 改成 `if i == 4`：熔断打开后先让两个请求快速失败，等冷却结束（本轮模拟为第 5 个请求之前）再进入半开，试探成功后恢复闭合。输出：\n\n```\n请求 1 闭合 调用失败\n请求 2 闭合 调用失败 熔断打开\n请求 3 打开 快速失败\n请求 4 打开 快速失败\n请求 5 半开 试探成功 恢复闭合\n```",
+      "expectedOutput": "请求 1 闭合 调用失败\n请求 2 闭合 调用失败 熔断打开\n请求 3 打开 快速失败\n请求 4 打开 快速失败\n请求 5 半开 试探成功 恢复闭合",
+      "hints": [
+        "打开状态由「连续失败 2 次」触发，处理完请求 2 之后 state 就变成「打开」。",
+        "请求 3、4 在打开状态应当快速失败，所以冷却判断要放在第 5 个请求之前（i == 4）。",
+        "`before := state` 是处理之前取的快照，直接用它就能看到请求到达时的状态。"
+      ],
+      "quiz": {
+        "question": "熔断器为什么要设置「打开」状态？",
+        "options": [
+          "打开表示系统进入维护模式，所有请求一律拒绝",
+          "打开时可以跳过健康检查，让调用更快",
+          "打开时快速失败、不再调用下游，避免故障蔓延并给下游恢复时间",
+          "打开表示永久拒绝该依赖的所有流量"
+        ],
+        "answer": 2,
+        "explanation": "打开状态快速失败，既避免调用方被慢依赖拖垮，也给下游留出恢复窗口；冷却后由半开逐步试探恢复。"
+      },
+      "takeaways": [
+        "熔断三态：闭合正常放行、打开快速失败、半开试探恢复。",
+        "连续失败达到阈值才打开；打开期间不要再去调用下游。",
+        "半开只放少量试探请求，成功回闭合，失败重新打开。",
+        "熔断通常配合降级，返回兜底数据而不是直接把错误抛给用户。"
+      ]
+    },
+    {
+      "id": "retry-timeout",
+      "title": "重试与超时",
+      "description": "用 select 同时等待响应与超时，再按次数上限重试直到成功或降级。",
+      "duration": 12,
+      "source": "go-practice/go-middleware.md · 第七章 容错：限流 / 熔断 / 重试 / 超时",
+      "concept": "超时（timeout）是一切容错的基础：没有超时，一个卡住的下游会耗尽调用方的连接和协程。重试（retry）在失败后再试几次，能掩盖偶发抖动，但必须同时满足：操作幂等（多次执行结果一致）、有次数上限、有退避（backoff，失败后等一会儿再试，避免所有人同时重试形成重试风暴）。\n\nGo 里超时的标准写法是 `select` 同时等待「结果」与「超时信号」，谁先就绪走谁。示例用两条带缓冲的 channel 分别代表响应和超时，不依赖真实时钟也能看清判定逻辑；`retry` 函数则封装了「带超时上限的多次尝试」。\n\n> ⚠️ **常见坑**：不设次数上限、对非幂等的写操作重试（比如重复下单）、把参数错误也拿去重试。真实实现还要在两次尝试之间加指数退避和抖动。\n\n> 💡 **技巧**：超时预算要逐级递减：留给下游的超时不能超过上游留给自己的剩余时间，否则上游先超时，重试就白做了。",
+      "example": "package main\n\nimport \"fmt\"\n\n// invoke 模拟一次带超时的调用：耗时超过 limit 就超时，二者先到者胜。\nfunc invoke(cost, limit int) (string, bool) {\n\tresp, timeout := make(chan string, 1), make(chan bool, 1)\n\tif cost <= limit {\n\t\tresp <- \"用户资料\"\n\t} else {\n\t\ttimeout <- true\n\t}\n\tselect {\n\tcase data := <-resp:\n\t\treturn data, true\n\tcase <-timeout:\n\t\treturn \"\", false // 超时后本次调用作废，不再无限等待\n\t}\n}\n\n// retry 按策略重试：每次调用都有超时上限，耗尽次数后降级。\nfunc retry(costs []int, limit int) {\n\tfor i, cost := range costs {\n\t\tif data, ok := invoke(cost, limit); ok {\n\t\t\tfmt.Printf(\"第%d次调用成功: %s\\n\", i+1, data)\n\t\t\treturn\n\t\t}\n\t\tfmt.Printf(\"第%d次调用超时，退避后重试\\n\", i+1)\n\t}\n\tfmt.Println(\"重试耗尽，返回降级数据\")\n}\n\nfunc main() {\n\tretry([]int{8, 3}, 5) // 第一次 8ms 超过 5ms 上限，第二次 3ms 在窗口内\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// invoke 模拟一次带超时的调用：耗时超过 limit 就超时，二者先到者胜。\nfunc invoke(cost, limit int) (string, bool) {\n\tresp, timeout := make(chan string, 1), make(chan bool, 1)\n\tif cost <= limit {\n\t\tresp <- \"用户资料\"\n\t} else {\n\t\ttimeout <- true\n\t}\n\tselect {\n\tcase data := <-resp:\n\t\treturn data, true\n\tcase <-timeout:\n\t\treturn \"\", false // 超时后本次调用作废，不再无限等待\n\t}\n}\n\n// retry 按策略重试：每次调用都有超时上限，耗尽次数后降级。\nfunc retry(costs []int, limit int) {\n\tfor i, cost := range costs {\n\t\tif data, ok := invoke(cost, limit); ok {\n\t\t\tfmt.Printf(\"第%d次调用成功: %s\\n\", i+1, data)\n\t\t\treturn\n\t\t}\n\t\tfmt.Printf(\"第%d次调用超时，退避后重试\\n\", i+1)\n\t}\n\tfmt.Println(\"重试耗尽，返回降级数据\")\n}\n\nfunc main() {\n\tretry([]int{3, 8}, 5) // 第一次就在窗口内返回，重试逻辑没被触发\n}",
+      "task": "把 `retry` 的两次调用耗时从 `{3, 8}` 改成 `{8, 3}`：第一次 8ms 超过 5ms 的超时上限被放弃，第二次 3ms 在窗口内成功。输出：\n\n```\n第1次调用超时，退避后重试\n第2次调用成功: 用户资料\n```",
+      "expectedOutput": "第1次调用超时，退避后重试\n第2次调用成功: 用户资料",
+      "hints": [
+        "`retry([]int{8, 3}, 5)` 的第一个参数是每次调用的耗时，第二个是超时上限。",
+        "`invoke(8, 5)` 中 8 > 5，超时分支就绪返回 false；`invoke(3, 5)` 才走响应分支。",
+        "第一次超时会打印「第1次调用超时，退避后重试」，第二次成功后函数直接返回。"
+      ],
+      "quiz": {
+        "question": "对一个「创建订单」接口做重试时，最需要注意什么？",
+        "options": [
+          "重试次数越多越好",
+          "必须先保证操作幂等，否则可能重复下单",
+          "重试不需要设置超时",
+          "失败后要立刻重试，不要退避"
+        ],
+        "answer": 1,
+        "explanation": "非幂等的写操作重试会产生重复数据，所以重试的前提是幂等，同时要有次数上限、超时和退避。"
+      },
+      "takeaways": [
+        "超时是一切容错的基础，每个出站调用都要有超时上限。",
+        "重试必须满足：幂等、次数上限、退避（配合抖动更佳）。",
+        "select 同时等待结果与超时，谁先就绪走谁。",
+        "重试耗尽要有降级兜底，不能把失败直接甩给用户。"
+      ]
+    }
+  ]
+}

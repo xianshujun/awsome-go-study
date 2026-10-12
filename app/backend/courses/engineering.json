@@ -1,0 +1,183 @@
+{
+  "order": 5,
+  "course": {
+    "id": "engineering",
+    "title": "Go 语言进阶 · 工程实践",
+    "description": "对照 go-advance/go-engineering.md：项目结构、表驱动测试、性能与错误处理，写出可维护的代码。",
+    "level": "进阶",
+    "duration": "约 55 分钟",
+    "accent": "#6a01ff"
+  },
+  "lessons": [
+    {
+      "id": "project-layout",
+      "title": "项目结构与分层设计",
+      "description": "用分层和依赖方向，让业务代码不绑死在某一种存储实现上。",
+      "duration": 10,
+      "source": "go-advance/go-engineering.md · 第一章 项目结构",
+      "concept": "项目结构关心的不是文件夹好不好看，而是**依赖方向**：谁可以引用谁。常见的分层是「入口层 → 业务层 → 数据层」，依赖只能从外往里指，内层不认识外层，也不认识具体的数据库。标准布局里 `cmd/` 放可执行入口、`internal/` 放不允许外部引用的私有代码、`pkg/` 放可复用的库；目录名字本身就在表达这条规则。\n\n把规则落到代码上，最轻的载体是**函数类型**：业务层声明 `type Finder func(id int) (string, bool)`，数据层只要给出一个满足它的函数（通常是个闭包）就能接进来。业务层只认识这个函数签名，所以换内存、换数据库都不用改业务代码——这就是「依赖倒置」（依赖指向稳定的抽象，而不是易变的具体实现）。\n\n> ⚠️ **常见坑**：包名不要用下划线、驼峰，也不要和标准库重名（如 `strings`、`http`），否则调用方必须起别名，极易混淆；包名用简短的小写单数名词。\n\n下面的练习里没有真实网络和数据库，只有「服务层 + 数据层」两个函数：重点是体会依赖方向，而不是存储细节。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// Finder 是服务层声明的依赖：只要“按编号取名字”，不关心数据存在哪。\ntype Finder func(id int) (string, bool)\n\n// Service 是服务层函数，依赖由参数注入，换存储实现不用改它。\nfunc Service(find Finder, ids []int) []string {\n\tnames := []string{}\n\tfor _, id := range ids {\n\t\tif name, ok := find(id); ok {\n\t\t\tnames = append(names, name)\n\t\t}\n\t}\n\treturn names\n}\n\n// memoryStore 是数据层实现：返回闭包即可满足 Finder。\nfunc memoryStore() Finder {\n\tdata := map[int]string{1: \"小明\", 2: \"小红\"}\n\treturn func(id int) (string, bool) {\n\t\tname, ok := data[id]\n\t\treturn name, ok\n\t}\n}\n\nfunc main() {\n\tfmt.Println(\"全部命中:\", strings.Join(Service(memoryStore(), []int{1, 2}), \", \"))\n\tfmt.Println(\"含缺失编号:\", strings.Join(Service(memoryStore(), []int{1, 3}), \", \"))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// Finder 是数据层能力：按编号取名字。\ntype Finder func(id int) (string, bool)\n\nfunc memoryStore() Finder {\n\tdata := map[int]string{1: \"小明\", 2: \"小红\"}\n\treturn func(id int) (string, bool) {\n\t\tname, ok := data[id]\n\t\treturn name, ok\n\t}\n}\n\nfunc main() {\n\tfind := memoryStore()\n\t// 服务层还没抽出来：遍历与拼接的逻辑直接写在 main 里。\n\tnames := []string{}\n\tfor _, id := range []int{1, 2} {\n\t\tif name, ok := find(id); ok {\n\t\t\tnames = append(names, name)\n\t\t}\n\t}\n\tfmt.Println(\"全部命中:\", strings.Join(names, \", \"))\n}\n",
+      "task": "数据层（`Finder` + `memoryStore`）已经就位，但遍历与拼接还堆在 `main` 里。请把服务层抽出来：\n\n1. 新增服务层函数 `Service(find Finder, ids []int) []string`：只依赖 `Finder`，遍历 `ids` 收集命中的名字；\n2. `main` 里用 `memoryStore()` 拿到 `Finder`，分别传入 `[]int{1, 2}` 与 `[]int{1, 3}`（编号 3 不存在，会被自然跳过）；\n3. 让输出变成：\n\n```\n全部命中: 小明, 小红\n含缺失编号: 小明\n```",
+      "expectedOutput": "全部命中: 小明, 小红\n含缺失编号: 小明",
+      "hints": [
+        "先写签名 `func Service(find Finder, ids []int) []string`：内部建一个 `names := []string{}`，再用 `for _, id := range ids` 遍历编号。",
+        "用 `if name, ok := find(id); ok { names = append(names, name) }` 只在取到时追加；没取到就直接跳过，不用特殊处理。",
+        "最后 `return names`，`main` 里用 `strings.Join(Service(memoryStore(), []int{1, 2}), \", \")` 把切片拼成一行。"
+      ],
+      "quiz": {
+        "question": "业务层把依赖声明成函数类型 `type Finder func(id int) (string, bool)` 并通过参数注入，主要收益是什么？",
+        "options": [
+          "编译速度更快，因为少了一层包依赖",
+          "业务层不再依赖具体的数据实现，替换存储或换成假实现时都不用改业务代码",
+          "运行时会自动缓存查询结果",
+          "可以让函数在运行时改变自己的签名"
+        ],
+        "answer": 1,
+        "explanation": "依赖指向抽象（这里是函数类型）而不是具体实现，是依赖倒置的核心：换存储实现、在练习里塞一个假数据源，业务层的 `Service` 都不需要改动。"
+      },
+      "takeaways": [
+        "项目结构的核心是依赖方向：外层可以依赖内层，内层不认识外层和具体存储。",
+        "函数类型是 Go 里最轻的抽象：数据层用闭包实现，业务层只认识函数签名。",
+        "包名要短、小写、单数，避免下划线与标准库重名。",
+        "先定依赖的抽象再写实现，业务逻辑才不会和存储细节缠在一起。"
+      ]
+    },
+    {
+      "id": "table-driven-test",
+      "title": "表驱动测试：用例表 + 断言函数",
+      "description": "把多组输入与期望写进一张表，测试逻辑只写一次。",
+      "duration": 12,
+      "source": "go-advance/go-engineering.md · 第二章 测试",
+      "concept": "标准库的 `testing` 用不了，但表驱动（table-driven：把多组输入与期望写在一张表里，用同一段逻辑跑完）的思想可以用普通 `main` 完整复刻：定义一张用例表，运行器循环遍历，每条用例调用同一个被测函数，再用断言逻辑比较实际值与期望值。\n\n表驱动的好处有三点：新增用例只要往表里加一行，不用复制粘贴测试逻辑；用例名会出现在输出里，失败时一眼看出是哪个场景；正例、反例、边界值并排放在一起，读起来就像一份规格说明。真实项目里它对应的是 `tests := []struct{...}{...}` 加 `t.Run(tt.name, ...)` 的写法。\n\n> 💡 **技巧**：一条用例只验证一个行为，名字写「场景」而不是 `case1`、`case2`；断言失败时把实际值（got）与期望值（want）都打印出来，否则你只知道错了，不知道差在哪。\n\n练习的对象是一个「去首尾空白 + 统一小写」的归一化函数：运行器已经写好了，但还没有断言。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// caseSpec 是一行用例：用例名 + 输入 + 期望输出。\ntype caseSpec struct{ name, in, want string }\n\n// normalize 是被测函数：先去首尾空白，再统一成小写。\nfunc normalize(text string) string { return strings.ToLower(strings.TrimSpace(text)) }\n\n// run 是极简测试运行器：遍历用例表逐条比较，最后汇总通过数。\nfunc run(cases []caseSpec) {\n\tpassed := 0\n\tfor _, c := range cases {\n\t\tgot := normalize(c.in)\n\t\tif got == c.want {\n\t\t\tpassed++\n\t\t\tfmt.Println(\"PASS\", c.name)\n\t\t\tcontinue\n\t\t}\n\t\tfmt.Printf(\"FAIL %s: got %q want %q\\n\", c.name, got, c.want)\n\t}\n\tfmt.Printf(\"通过 %d/%d\\n\", passed, len(cases))\n}\n\nfunc main() {\n\trun([]caseSpec{\n\t\t{\"去掉首尾空白\", \"  Go  \", \"go\"},\n\t\t{\"统一小写\", \"ABC\", \"abc\"},\n\t\t{\"空串保持不变\", \"\", \"\"},\n\t})\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// caseSpec 是一行用例：用例名 + 输入 + 期望输出。\ntype caseSpec struct{ name, in, want string }\n\n// normalize 是被测函数：先去首尾空白，再统一成小写。\nfunc normalize(text string) string { return strings.ToLower(strings.TrimSpace(text)) }\n\n// run 目前只打印用例名，还没有断言与统计。\nfunc run(cases []caseSpec) {\n\tfor _, c := range cases {\n\t\tfmt.Println(\"待断言\", c.name)\n\t}\n}\n\nfunc main() {\n\tcases := []caseSpec{\n\t\t{\"去掉首尾空白\", \"  Go  \", \"go\"},\n\t\t{\"统一小写\", \"ABC\", \"abc\"},\n\t\t{\"空串保持不变\", \"\", \"\"},\n\t}\n\trun(cases)\n\tfmt.Println(\"通过 0/3\")\n}\n",
+      "task": "练习环境不能 import `testing`（`go test` 也跑不了），所以这里的运行器是**可运行的近似模型**：\n真实项目里对应 `tests := []struct{...}{...}` 加 `t.Run(tt.name, ...)`。\n\n`run` 现在只是打印用例名，并没有做断言。请把它改成真正的运行器：\n\n1. 每条用例取 `got := normalize(c.in)`，与 `c.want` 比较；\n2. 相等打印 `PASS 用例名`，不等打印 `FAIL 用例名: got \"实际值\" want \"期望值\"`；\n3. 统计通过数，循环结束后打印 `通过 3/3`；\n4. 删掉 `main` 里那句写死的 `通过 0/3`，否则会多出一行。\n\n期望输出：\n\n```\nPASS 去掉首尾空白\nPASS 统一小写\nPASS 空串保持不变\n通过 3/3\n```",
+      "expectedOutput": "PASS 去掉首尾空白\nPASS 统一小写\nPASS 空串保持不变\n通过 3/3",
+      "hints": [
+        "在循环里先 `got := normalize(c.in)`，再用 `if got == c.want` 分支：相等就让 `passed++` 并打印 PASS。",
+        "失败分支用 `fmt.Printf(\"FAIL %s: got %q want %q\\n\", c.name, got, c.want)`：`%q` 会给字符串加引号，空格差异一眼可见。",
+        "循环结束后 `fmt.Printf(\"通过 %d/%d\\n\", passed, len(cases))`，并在 `main` 里删掉写死的 `通过 0/3`。"
+      ],
+      "quiz": {
+        "question": "表驱动测试相比「一条用例一个函数」，最主要的优势是什么？",
+        "options": [
+          "运行速度一定更快",
+          "新增用例只需往表里加一行，测试逻辑只写一次",
+          "可以省略断言，靠肉眼比对",
+          "被测函数可以不用返回值"
+        ],
+        "answer": 1,
+        "explanation": "表驱动把测试数据与测试逻辑分开：遍历加断言的逻辑只写一次，新增场景只加一行数据，正例、反例、边界值集中在一处也更方便审查。"
+      },
+      "takeaways": [
+        "表驱动 = 用例表 + 一份运行逻辑，新增用例只加数据。",
+        "断言失败要同时打印 got 与 want，否则排查只能靠猜。",
+        "用例名写清场景，输出里就能直接定位失败项。",
+        "没有 testing 框架时，「循环 + 比较 + 计数」就是最小可用的测试运行器。"
+      ]
+    },
+    {
+      "id": "performance-basics",
+      "title": "性能优化基础：少分配、预分配",
+      "description": "用可以算出来的操作次数，看清预分配为什么更快。",
+      "duration": 12,
+      "source": "go-advance/go-engineering.md · 第三章 性能优化",
+      "concept": "性能优化不是凭感觉，而是先测量、再动手。`go test -bench`、pprof（性能剖析：用采样告诉你时间花在哪里的工具）在练习环境里用不了，但「预分配」（提前把容量申请够，避免反复搬家）的收益可以用一个可计算的模型看清：容量不够时容器要重新申请一块更大的内存，并把旧元素逐个复制过去——元素越多，复制越贵。\n\n真实 Go 切片的扩容策略是「容量不够就换更大的底层数组」：小容量大致翻倍，容量变大后增长比例降到约 1.25 倍。无论哪种策略，**追加同样多的元素，不预分配一定比预分配多出大量复制**；能预知数量时写 `make([]T, 0, n)`，就是把多次申请与复制换成一次申请。\n\n> ⚠️ **常见坑**：`append` 返回的可能是新切片，容量不足时原变量还指向旧数组，所以必须接住返回值；循环里用 `result = result + s` 拼字符串同样是反复搬家，真实代码应该用 `strings.Builder` 并先 `Grow` 预估大小。\n\n下面的模型把「写入一个元素」和「扩容时复制一个旧元素」都记为一次操作，用 n=100 对比不预分配与一次预分配的总操作数。",
+      "example": "package main\n\nimport \"fmt\"\n\n// growCost 统计写 n 个元素的总操作数：写入算 1 次，扩容时复制的每个元素也算 1 次。\n// initial 是起始容量：0 表示不预分配（翻倍扩容），n 表示一次申请够。\nfunc growCost(n, initial int) int {\n\tcost, used, capacity := 0, 0, initial\n\tfor i := 0; i < n; i++ {\n\t\tif used == capacity { // 容量用完，需要重新申请更大的底层数组\n\t\t\tcost += used // 旧元素要全部复制过去\n\t\t\tif capacity == 0 {\n\t\t\t\tcapacity = 1\n\t\t\t} else {\n\t\t\t\tcapacity *= 2\n\t\t\t}\n\t\t}\n\t\tcost++ // 写入新元素本身\n\t\tused++\n\t}\n\treturn cost\n}\n\nfunc main() {\n\tfmt.Println(\"元素个数:\", 100)\n\tfmt.Printf(\"不预分配: 操作 %d 次\\n\", growCost(100, 0))\n\tfmt.Printf(\"预分配: 操作 %d 次\\n\", growCost(100, 100))\n\tfmt.Printf(\"节省: %d 次操作\\n\", growCost(100, 0)-growCost(100, 100))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\n// growCost 只模拟了「不预分配」：容量从 0 开始翻倍。\nfunc growCost(n int) int {\n\tcost, used, capacity := 0, 0, 0\n\tfor i := 0; i < n; i++ {\n\t\tif used == capacity {\n\t\t\tcost += used\n\t\t\tif capacity == 0 {\n\t\t\t\tcapacity = 1\n\t\t\t} else {\n\t\t\t\tcapacity *= 2\n\t\t\t}\n\t\t}\n\t\tcost++\n\t\tused++\n\t}\n\treturn cost\n}\n\nfunc main() {\n\tfmt.Println(\"元素个数: 100\")\n\tfmt.Printf(\"不预分配: 操作 %d 次\\n\", growCost(100))\n}\n",
+      "task": "基准测试（`go test -bench`）在练习环境里用不了，所以这里用「统计写入与复制操作次数」的**可运行模型**替代，\n结论与真实基准一致：预分配省下的就是扩容复制。请改造：\n\n1. 签名改成 `growCost(n, initial int) int`，用 `capacity := initial` 起步（`initial` 是起始容量）；\n2. 扩容逻辑保持不变：`capacity == 0` 时先扩到 1，之后翻倍；\n3. `main` 打印四行：元素个数、不预分配（`growCost(100, 0)`）、预分配（`growCost(100, 100)`）以及两者相差的操作数。\n\n期望输出：\n\n```\n元素个数: 100\n不预分配: 操作 227 次\n预分配: 操作 100 次\n节省: 127 次操作\n```",
+      "expectedOutput": "元素个数: 100\n不预分配: 操作 227 次\n预分配: 操作 100 次\n节省: 127 次操作",
+      "hints": [
+        "只需把 `capacity := 0` 换成参数 `initial`，其余扩容逻辑不用动；`growCost(100, 0)` 依然得到 227。",
+        "`initial` 传 100 时 `used` 永远追不上 `capacity`，扩容分支一次都不会进，操作数正好是 100。",
+        "节省的次数用两次调用相减：`growCost(100, 0) - growCost(100, 100)`，结果是 127。"
+      ],
+      "quiz": {
+        "question": "已知要往切片里追加 100 个元素，`items := make([]int, 0, 100)` 相比直接 `var items []int` 再追加，主要省下什么？",
+        "options": [
+          "省下 100 次元素写入",
+          "省下多次扩容带来的内存申请与旧元素复制",
+          "让切片能装下超过 100 个元素",
+          "省下调 append 的返回值"
+        ],
+        "answer": 1,
+        "explanation": "预分配只是把容量一次申请够，元素写入的次数不会减少；省下的是扩容（申请更大的底层数组并复制旧元素）这部分开销，元素越多越明显。"
+      },
+      "takeaways": [
+        "优化先测量：能把操作次数算清楚，就不要凭感觉。",
+        "扩容的代价是重新申请内存并复制旧元素，元素越多越贵。",
+        "能预知数量时用 make([]T, 0, n) 把多次扩容换成一次申请。",
+        "真实运行时容量较大后按约 1.25 倍增长，小容量近似翻倍。"
+      ]
+    },
+    {
+      "id": "error-wrapping",
+      "title": "错误包装：带上下文的错误链",
+      "description": "用 fmt.Errorf 与 %w 逐层补充信息，让调用方能定位也能判断。",
+      "duration": 10,
+      "source": "go-advance/go-engineering.md · 第四章 错误处理",
+      "concept": "`error` 是只有一个 `Error() string` 方法的接口（接口只规定行为，任何实现了它的类型都能当错误用）。最朴素的 `errors.New(\"失败\")` 只说明「失败了」，却说不清失败在哪一步、对哪个值失败。**错误包装**（把底层错误套进新错误里，同时补充当前层的信息）解决的正是这个问题：每一层只描述自己做了什么，再把错误原样上抛，越往外信息越完整。\n\n关键细节是动词的选择：`fmt.Errorf` 里用 `%w` 才会把底层错误装进**错误链**，上层可以用 `errors.Is` / `errors.As` 顺着链条找到根因；写成 `%v` 只是把文字拼进消息，链条就断了。练习环境不能 import `errors`，所以这里用打印完整错误信息的方式感受链条；真实项目请用 `%w` 搭配 `errors.Is`。\n\n> ⚠️ **常见坑**：不要在每一层重复同样的文案（`加载配置失败: 加载配置失败: ...`），每层只加自己独有的信息（哪个参数、哪个文件）；只在需要被上层识别的边界用 `%w`，避免无意义地层层包装。\n\n练习从「解析端口」到「加载配置」包装两层，观察同一条错误如何带上全部上下文。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\n// parsePort 解析端口：失败时补上“解析了什么”，%w 保留底层原因。\nfunc parsePort(text string) error {\n\tport, err := strconv.Atoi(text)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"解析端口 %q: %w\", text, err)\n\t}\n\tif port < 1 || port > 65535 {\n\t\treturn fmt.Errorf(\"端口 %d 超出范围 1-65535\", port)\n\t}\n\treturn nil\n}\n\n// loadConfig 只补充自己这一层的信息，再原样把错误交给调用方。\nfunc loadConfig(raw string) error {\n\tif err := parsePort(raw); err != nil {\n\t\treturn fmt.Errorf(\"加载配置失败: %w\", err)\n\t}\n\treturn nil\n}\nfunc main() {\n\tfor _, raw := range []string{\"8080\", \"abc\", \"70000\"} {\n\t\tif err := loadConfig(raw); err != nil {\n\t\t\tfmt.Println(\"错误:\", err)\n\t\t} else {\n\t\t\tfmt.Println(\"端口:\", raw)\n\t\t}\n\t}\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\n// parsePort 现在把底层错误直接丢给上层：调用方不知道“是谁在解析什么”。\nfunc parsePort(text string) (int, error) {\n\treturn strconv.Atoi(text)\n}\n\n// loadConfig 也没有补充任何上下文。\nfunc loadConfig(raw string) (int, error) {\n\treturn parsePort(raw)\n}\n\nfunc main() {\n\tfor _, raw := range []string{\"8080\", \"abc\", \"70000\"} {\n\t\tport, err := loadConfig(raw)\n\t\tif err != nil {\n\t\t\tfmt.Println(\"错误:\", err)\n\t\t} else {\n\t\t\tfmt.Println(\"端口:\", port)\n\t\t}\n\t}\n}\n",
+      "task": "现在的错误是「裸的」：`parsePort` 把 `strconv` 的原始错误直接丢给上层，而且没有范围校验。请改造：\n\n1. 解析失败时返回 `解析端口 \"参数\": 原因`（用 `fmt.Errorf` 配合 `%w` 保留底层原因）；\n2. 增加范围校验：端口小于 1 或大于 65535 时返回 `端口 70000 超出范围 1-65535`；\n3. 两个函数都改成只返回 `error`：`parsePort(text string) error`、`loadConfig(raw string) error`；\n4. `loadConfig` 再把底层错误包装成 `加载配置失败: 底层信息`；\n5. `main` 的输入列表保持 `\"8080\"`、`\"abc\"`、`\"70000\"` 三个，校验通过时打印 `端口: ` 加原始参数。\n\n期望输出（注意三行错误信息的层层前缀）：\n\n```\n端口: 8080\n错误: 加载配置失败: 解析端口 \"abc\": strconv.Atoi: parsing \"abc\": invalid syntax\n错误: 加载配置失败: 端口 70000 超出范围 1-65535\n```",
+      "expectedOutput": "端口: 8080\n错误: 加载配置失败: 解析端口 \"abc\": strconv.Atoi: parsing \"abc\": invalid syntax\n错误: 加载配置失败: 端口 70000 超出范围 1-65535",
+      "hints": [
+        "`fmt.Errorf(\"解析端口 %q: %w\", text, err)`：`%q` 给参数加引号，空格差异看得见；`%w` 才会把底层错误装进错误链。",
+        "范围校验要在 `Atoi` 之后：`if port < 1 || port > 65535 { return fmt.Errorf(\"端口 %d 超出范围 1-65535\", port) }`。",
+        "`loadConfig` 里用 `if err := parsePort(raw); err != nil { return fmt.Errorf(\"加载配置失败: %w\", err) }`，成功时返回 `nil`。"
+      ],
+      "quiz": {
+        "question": "`fmt.Errorf(\"加载配置失败: %v\", err)` 与 `fmt.Errorf(\"加载配置失败: %w\", err)` 的关键区别是什么？",
+        "options": [
+          "没有区别，只是写法不同",
+          "%v 只把文字拼进消息，错误链会断掉；%w 保留底层错误，上层可以用 errors.Is/As 判断",
+          "%w 会自动重试失败的操作",
+          "%v 只能用于字符串类型的错误"
+        ],
+        "answer": 1,
+        "explanation": "两者打印出来的文案可能一样，但只有 %w 会把底层错误包装进错误链，errors.Is/errors.As 才能顺着链条找到根因；练习环境不能导入 errors，所以用完整错误信息观察链条。"
+      },
+      "takeaways": [
+        "error 是接口，任何实现了 Error() string 的类型都能当错误。",
+        "每一层只补充自己的上下文，底层原因用 %w 带上来。",
+        "用 %v 拼接会断开错误链，需要上层判断时一定要用 %w。",
+        "错误信息要能回答三件事：在哪一步、对什么值、为什么失败。"
+      ]
+    },
+    {
+      "id": "naming-style",
+      "title": "命名与可读性：让代码自己解释自己",
+      "description": "把 fp、p、d 换成能读懂的命名，顺手补上边界处理。",
+      "duration": 8,
+      "source": "go-advance/go-engineering.md · 第一章 项目结构",
+      "concept": "Go 的命名哲学是「短，但要有信息量」：作用域越小名字可以越短（循环里的 `i`、`c` 没问题），越是被广泛调用的名字越要自解释（`finalPrice` 比 `fp` 好，`discountPercent` 比 `d` 好）。收益很直接——读代码的人（包括三个月后的你）不用先考证这几个字母是什么意思。\n\n具体规范：变量与函数用驼峰、不要下划线；首字母大小写决定是否导出（`FinalPrice` 可被其它包调用，`finalPrice` 只在包内可见）；导出名要写文档注释，且注释以名字开头；包名短、小写、单数。配套原则是「一个函数只做一件事」：既算价格又拼文案的函数，名字永远取不好，拆成两个就都清楚了。\n\n> ⚠️ **常见坑**：不要用拼音或缩写堆叠（`jisuanJG`、`p1`、`tmp2`），也不要在名字里写类型（`priceInt`、`nameStr`）；名字要说明用途，而不是长相。\n\n练习对象是一个打折计价函数：命名模糊，而且缺少「折扣达到或超过 100%」的兜底。",
+      "example": "package main\n\nimport \"fmt\"\n\n// finalPrice 计算折后价（单位：分）：名字说明返回什么，调用处不用猜。\nfunc finalPrice(priceCents, discountPercent int) int {\n\tif discountPercent <= 0 {\n\t\treturn priceCents\n\t}\n\tif discountPercent >= 100 {\n\t\treturn 0 // 边界：100% 或更大的折扣都按 0 处理\n\t}\n\treturn priceCents * (100 - discountPercent) / 100\n}\n\n// describe 只负责拼展示文案，计算交给 finalPrice：一个函数一件事。\nfunc describe(name string, priceCents, discountPercent int) string {\n\treturn fmt.Sprintf(\"%s: %d 分\", name, finalPrice(priceCents, discountPercent))\n}\n\nfunc main() {\n\tfmt.Println(describe(\"基础课\", 10000, 0))\n\tfmt.Println(describe(\"进阶课\", 10000, 25))\n\tfmt.Println(describe(\"年度会员\", 10000, 100))\n\tfmt.Println(describe(\"异常输入\", 10000, 120))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\n// 命名过于简略：fp、p、d 看不出含义，读代码的人只能靠猜。\nfunc fp(p, d int) int {\n\tif d <= 0 {\n\t\treturn p\n\t}\n\treturn p * (100 - d) / 100\n}\n\nfunc main() {\n\tfmt.Println(\"基础课:\", fp(10000, 0), \"分\")\n\tfmt.Println(\"进阶课:\", fp(10000, 25), \"分\")\n\tfmt.Println(\"年度会员:\", fp(10000, 100), \"分\")\n}\n",
+      "task": "这段代码能跑，但很难读，还漏了边界。请改造：\n\n1. 把 `fp`、`p`、`d` 改成有信息量的名字（例如 `finalPrice`、`priceCents`、`discountPercent`）；\n2. 拆出 `describe(name string, priceCents, discountPercent int) string` 负责拼文案，`main` 只负责调用；\n3. 补上兜底：折扣大于等于 100% 时返回 0（现在传 120 会算出负数）；\n4. `main` 增加一行 `异常输入` 的用例。\n\n期望输出：\n\n```\n基础课: 10000 分\n进阶课: 7500 分\n年度会员: 0 分\n异常输入: 0 分\n```",
+      "expectedOutput": "基础课: 10000 分\n进阶课: 7500 分\n年度会员: 0 分\n异常输入: 0 分",
+      "hints": [
+        "签名改成 `finalPrice(priceCents, discountPercent int) int`：两个参数的含义从名字就能看出来。",
+        "边界判断放在计算函数最前面：`if discountPercent >= 100 { return 0 }`，这样 120 也不会算出负数。",
+        "`describe` 用 `fmt.Sprintf(\"%s: %d 分\", name, finalPrice(priceCents, discountPercent))`，四行输出格式自然统一。"
+      ],
+      "quiz": {
+        "question": "关于 Go 的命名，下面哪种做法更符合规范？",
+        "options": [
+          "包名用复数和下划线区分层级，例如 user_service",
+          "作用域很小的地方可以用短名，被广泛调用的名字要能自解释",
+          "变量名里带上类型，例如 priceInt、nameStr",
+          "导出的函数不用写注释，代码本身就是文档"
+        ],
+        "answer": 1,
+        "explanation": "Go 崇尚短名字，但短的边界取决于作用域：循环变量 i 没问题，公开的名字要让人一眼看懂用途；包名用小写单数，变量名不要带类型，导出名要有以名字开头的文档注释。"
+      },
+      "takeaways": [
+        "命名长度与作用域成正比：局部短、公开长。",
+        "名字说明用途而不是类型，不用拼音、下划线或缩写堆叠。",
+        "一个函数一件事，名字直接体现它返回什么。",
+        "边界值（0、100%、负数）要在函数开头兜住，别让脏值流到展示层。"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,237 @@
+{
+  "order": 1,
+  "course": {
+    "id": "grammar",
+    "title": "Go 语言基础 · 语法",
+    "description": "对照 go-basic/go-grammar.md 的章节顺序，从变量、控制流到切片映射，每个概念都写成能运行的代码。",
+    "level": "基础",
+    "duration": "约 90 分钟",
+    "accent": "#604fcd"
+  },
+  "lessons": [
+    {
+      "id": "var-scope",
+      "title": "变量、常量与作用域",
+      "description": "用声明方式表达意图，用作用域限制可见范围。",
+      "duration": 10,
+      "source": "go-basic/go-grammar.md · 第二章 变量与常量",
+      "concept": "变量是存储数据的容器。`var name string` 声明后按零值初始化，`var age = 20` 由初始值推断类型，而 `:=` 只能在函数内部使用。常量用 `const` 声明，表示运行期间不会改变的值。\n\n变量的作用域决定它被哪一层看见：包级变量整个包都能用，函数内声明的只在函数内可见，`if` / `for` 块里声明的连块外都出不去。内层同名声明会**遮蔽**外层变量，这不是语法错误，但很容易看错。\n\n> ⚠️ **常见坑**：在 `if` 里用 `:=` 声明变量，块外访问不到；如果确实要在块外使用，就在块外声明、块内赋值。",
+      "example": "package main\n\nimport \"fmt\"\n\nconst maxScore = 100\n\nfunc main() {\n\tscore := 95\n\t// level 只在这个 else if 块里可见，块外访问会编译报错。\n\tif score >= 90 {\n\t\tfmt.Println(\"优秀\")\n\t} else if score >= 80 {\n\t\tfmt.Println(\"良好\")\n\t} else {\n\t\tfmt.Println(\"继续练习\")\n\t}\n\tfmt.Println(score, maxScore)\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\nconst maxScore = 100\n\nfunc main() {\n\tscore := 85\n\t// 只改 score 的值，让程序输出「优秀」和「95 100」。\n\tif score >= 90 {\n\t\tfmt.Println(\"优秀\")\n\t} else if score >= 80 {\n\t\tfmt.Println(\"良好\")\n\t} else {\n\t\tfmt.Println(\"继续练习\")\n\t}\n\tfmt.Println(score, maxScore)\n}",
+      "task": "把 `score` 从 85 改成 95，让输出变成：\n\n```\n优秀\n95 100\n```",
+      "expectedOutput": "优秀\n95 100",
+      "hints": [
+        "只需要修改 score 的初始值，判断逻辑不用动。",
+        "90 分及以上走第一个分支；Println 会用空格分隔多个参数。"
+      ],
+      "quiz": {
+        "question": "关于 `:=` 短变量声明，下面哪种说法正确？",
+        "options": [
+          "可以在包级和函数内任意位置使用",
+          "只能在函数内部使用，并会推断类型",
+          "必须显式写出类型",
+          "声明后不能再改变量中的值"
+        ],
+        "answer": 1,
+        "explanation": "短变量声明只能在函数内部使用，它会根据右侧的初始值推断类型；包级声明要用 var 或 const。"
+      },
+      "takeaways": [
+        "var 声明、`:=` 短声明、const 常量各有适用场景。",
+        "作用域由声明位置决定，if 与 for 内的变量块外不可见。",
+        "内层同名变量会遮蔽外层变量，命名要避免混淆。"
+      ]
+    },
+    {
+      "id": "flow-loop",
+      "title": "循环与条件：for 与 continue",
+      "description": "用 for 表达重复，用 continue 与 break 控制节奏。",
+      "duration": 10,
+      "source": "go-basic/go-grammar.md · 第五章 控制流",
+      "concept": "Go 只有一种循环关键字 `for`，它同时承担了其它语言里 for、while 和无限循环的角色：`for i := 1; i <= 10; i++` 是计数循环，`for 条件` 等价于 while，`for` 单独使用就是死循环。\n\n`continue` 跳过本轮剩余语句直接进入下一轮，`break` 结束整个循环。判断条件必须是布尔值，Go 不会把数字当成真假。\n\n> 💡 **技巧**：`for ... range` 用来遍历切片和映射；遍历切片时第一个返回值是下标，只关心值时用 `_` 忽略它。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tsum := 0\n\tfor i := 1; i <= 10; i++ {\n\t\t// 只累加偶数，奇数直接进入下一轮。\n\t\tif i%2 != 0 {\n\t\t\tcontinue\n\t\t}\n\t\tsum += i\n\t}\n\tfmt.Println(\"偶数和:\", sum)\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tsum := 0\n\tfor i := 1; i <= 10; i++ {\n\t\tsum += i\n\t}\n\tfmt.Println(\"偶数和:\", sum)\n}",
+      "task": "现在的程序把 1 到 10 全部累加了。修改循环体，让它**只累加偶数**，输出：\n\n```\n偶数和: 30\n```",
+      "expectedOutput": "偶数和: 30",
+      "hints": [
+        "判断 i 对 2 取余是否为 0，可以筛出偶数。",
+        "想在判断后跳过本轮，用 continue；如果整个循环都不用继续，才是 break。"
+      ],
+      "quiz": {
+        "question": "循环体里执行 `continue` 会发生什么？",
+        "options": [
+          "结束整个循环，执行循环后面的语句",
+          "跳过本轮剩余语句，进入下一轮循环",
+          "重新从第一次循环开始执行",
+          "程序进入死循环"
+        ],
+        "answer": 1,
+        "explanation": "continue 只结束当前这一轮，随后照常进入下一轮；break 才是结束整个循环。"
+      },
+      "takeaways": [
+        "Go 用 for 统一表达计数循环、条件循环与死循环。",
+        "continue 跳过本轮，break 结束整个循环。",
+        "条件表达式必须是布尔值，不使用数字真假。"
+      ]
+    },
+    {
+      "id": "slice-append",
+      "title": "切片：长度、追加与遍历",
+      "description": "理解 append 的返回值，正确地增长一组数据。",
+      "duration": 12,
+      "source": "go-basic/go-grammar.md · 第七章 数组、切片和映射",
+      "concept": "切片是长度可变的序列，可以理解为「数组的一段视图 + 容量」。`len` 是当前元素个数，`cap` 是底层数组能容纳的个数；当追加超过容量时，运行时会分配更大的底层数组，并把原有元素复制过去。\n\n正因为可能重新分配，**append 必须接收返回值**：`scores = append(scores, 90)`。原变量可能仍指向旧的底层数组，忽略返回值就会丢掉新元素。\n\n> ⚠️ **常见坑**：`s := arr[:2]` 与 `arr` 共享底层数组，改 `s[0]` 会影响 `arr`；想真正独立，需要复制一份。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tscores := []int{60, 72, 85}\n\t// append 可能扩容并返回新切片，必须接住返回值。\n\tscores = append(scores, 90)\n\n\ttotal := 0\n\tfor _, score := range scores {\n\t\ttotal += score\n\t}\n\tfmt.Println(\"人数:\", len(scores))\n\tfmt.Println(\"总分:\", total)\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tscores := []int{60, 72, 85}\n\n\ttotal := 0\n\tfor _, score := range scores {\n\t\ttotal += score\n\t}\n\tfmt.Println(\"人数:\", len(scores))\n\tfmt.Println(\"总分:\", total)\n}",
+      "task": "把第 4 个成绩 90 追加到切片里，让输出变成：\n\n```\n人数: 4\n总分: 307\n```",
+      "expectedOutput": "人数: 4\n总分: 307",
+      "hints": [
+        "用 append 追加元素，并记得把返回值赋回 scores。",
+        "遍历时用 `_` 忽略下标，只需要成绩本身。"
+      ],
+      "quiz": {
+        "question": "为什么必须写 `scores = append(scores, 90)` 而不是只调用 `append(scores, 90)`？",
+        "options": [
+          "append 一定修改原切片，赋值只是为了好看",
+          "append 可能扩容并返回新切片，不接收返回值会丢掉新元素",
+          "append 只能用于字符串切片",
+          "不接收返回值会引发运行时 panic"
+        ],
+        "answer": 1,
+        "explanation": "容量足够时 append 会就地追加，容量不够时会分配新数组；两种情况都需要用返回值保存结果，只调用不接收在容量不足时会丢数据。"
+      },
+      "takeaways": [
+        "len 是元素个数，cap 是底层数组的容量。",
+        "append 可能扩容，必须接住返回值。",
+        "range 遍历切片时下标在前、值在后，忽略下标用 `_`。"
+      ]
+    },
+    {
+      "id": "types-convert",
+      "title": "类型转换与运算优先级",
+      "description": "整数除法会截断，类型转换与括号决定结果。",
+      "duration": 12,
+      "source": "go-basic/go-grammar.md · 第三章 基本数据类型 / 第四章 运算符",
+      "concept": "Go 是强类型语言：不同类型的值不能直接运算，必须显式写类型转换（把值从一种类型变成另一种类型）。`price` 和 `count` 都是 `int` 时，`price / count` 的结果还是 `int`，小数部分被直接截断，10 / 4 只能得到 2；想让除法保留小数，要先转成浮点类型：`float64(price) / float64(count)`，或者把字面量写成 10.0 与 4.0。\n\n运算顺序由优先级决定：`*` `/` `%` 高于 `+` `-`，比较运算高于 `&&`，`&&` 高于 `||`，同级运算符从左到右。`price*count + 5` 先乘后加，`price*(count+5)` 用括号改变顺序。与其背优先级表，不如在混合运算里用括号把意图写清楚。\n\n数字和字符串之间不能靠类型转换偷懒：`string(65)` 得到的是编码为 65 的字符 \"A\"，而不是字符串 \"65\"；整数转字符串要用 strconv.Itoa，字符串转整数用 strconv.Atoi（它还会额外返回一个可能非 nil 的错误）。\n\n> ⚠️ **常见坑**：两个 int 相除永远得不到小数，`10 / 4` 是 2 而不是 2.5；只要除号两边都是整型就会截断，先转 float64 再除。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\nfunc main() {\n\tprice, count := 10, 4\n\n\t// 两个 int 相除会截断小数，先转成 float64 才是保留小数的除法。\n\tfmt.Println(\"单价:\", float64(price)/float64(count))\n\n\t// 乘法优先于加法；括号既能改变顺序，也能把意图写清楚。\n\tfmt.Println(\"总价:\", price*count+5)\n\tfmt.Println(\"带括号:\", price*(count+5))\n\n\t// 整数转字符串要用 strconv.Itoa，string(40) 得到的是字符而不是 \"40\"。\n\tfmt.Println(\"字符串拼接:\", strconv.Itoa(price*count)+\" 元\")\n}",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\nfunc main() {\n\tprice, count := 10, 4\n\n\t// TODO: 整数除法会丢掉小数，改成浮点除法，让单价显示 2.5。\n\tfmt.Println(\"单价:\", price/count)\n\n\t// 乘法优先于加法；括号既能改变顺序，也能把意图写清楚。\n\tfmt.Println(\"总价:\", price*count+5)\n\tfmt.Println(\"带括号:\", price*(count+5))\n\n\t// 整数转字符串要用 strconv.Itoa，string(40) 得到的是字符而不是 \"40\"。\n\tfmt.Println(\"字符串拼接:\", strconv.Itoa(price*count)+\" 元\")\n}",
+      "task": "现在的程序用整数除法算单价，结果是 2。把这一行改成浮点除法，让输出变成：\n\n```\n单价: 2.5\n总价: 45\n带括号: 90\n字符串拼接: 40 元\n```",
+      "expectedOutput": "单价: 2.5\n总价: 45\n带括号: 90\n字符串拼接: 40 元",
+      "hints": [
+        "两个 int 相除时小数会被截断，先把参与除法的一个操作数转成 float64。",
+        "写成 `float64(price) / float64(count)`，或者把两个字面量写成 10.0 与 4.0。"
+      ],
+      "quiz": {
+        "question": "在 Go 中，表达式 `10 + 5*2` 的结果是多少？",
+        "options": [
+          "20",
+          "30",
+          "25",
+          "编译错误，必须写括号"
+        ],
+        "answer": 0,
+        "explanation": "乘法优先级高于加法，先算 5*2 得 10，再加 10，结果是 20；想先加必须写 (10+5)*2。"
+      },
+      "takeaways": [
+        "不同类型的值必须显式转换，int 除法会截断小数。",
+        "整数转 float64 用 float64(x)，数字与字符串互转用 strconv。",
+        "乘除优先于加减，括号既能改变顺序也能表达意图。"
+      ]
+    },
+    {
+      "id": "func-returns",
+      "title": "函数：多返回值、闭包与 defer",
+      "description": "一次返回多个结果，用闭包保存状态，用 defer 收尾。",
+      "duration": 15,
+      "source": "go-basic/go-grammar.md · 第六章 函数",
+      "concept": "函数是 Go 组织代码的基本单位。Go 的函数可以一次返回多个值，最常见的组合是「结果 + 错误」；给返回值起名字后（命名返回值），函数体里可以直接给它们赋值，末尾写一个单独的 `return` 就会把这些命名返回值交出去，例如 `func divmod(a, b int) (quotient, remainder int)`。\n\n在 Go 里函数是一等公民（可以像普通值一样传递、返回），闭包就是「函数 + 它捕获的外部变量」。`makeCounter` 返回的匿名函数捕获了外层的 `count`，只要这个函数值还活着，`count` 就一直存在，于是每次调用都能在上一次的结果上继续累加——这就是用闭包保存状态的典型写法。\n\n`defer` 把一条语句推迟到函数返回之前执行，常用于收尾：释放资源、打日志、恢复 panic。多个 defer 按后进先出（LIFO，后注册的先执行）的顺序运行；defer 的参数在注册那一刻就求值，之后修改变量不会影响已经注册的参数。\n\n> ⚠️ **常见坑**：`defer fmt.Println(i)` 打印的是注册当时的 `i`，即使后面把 `i` 改成 10 也输出旧值；想让 defer 读到变量的最终值，要写成 `defer func() { fmt.Println(i) }()`。",
+      "example": "package main\n\nimport \"fmt\"\n\n// divmod 用命名返回值一次返回商和余数，末尾的 return 会自动交回它们。\nfunc divmod(a, b int) (quotient, remainder int) {\n\tquotient = a / b\n\tremainder = a % b\n\treturn\n}\n\n// makeCounter 返回闭包：闭包捕获了 count，多次调用共享同一份状态。\nfunc makeCounter() func() int {\n\tcount := 0\n\treturn func() int {\n\t\tcount++\n\t\treturn count\n\t}\n}\n\nfunc main() {\n\t// defer 注册的语句在函数返回前执行，适合放收尾动作。\n\tdefer fmt.Println(\"统计完成\")\n\n\tquotient, remainder := divmod(17, 5)\n\tfmt.Println(\"商与余数:\", quotient, remainder)\n\n\tnext := makeCounter()\n\tfmt.Println(\"计数:\", next(), next(), next())\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// divmod 用命名返回值一次返回商和余数，末尾的 return 会自动交回它们。\nfunc divmod(a, b int) (quotient, remainder int) {\n\tquotient = a / b\n\tremainder = a % b\n\treturn\n}\n\n// makeCounter 返回闭包：闭包捕获了 count，多次调用共享同一份状态。\nfunc makeCounter() func() int {\n\tcount := 0\n\treturn func() int {\n\t\tcount++\n\t\treturn count\n\t}\n}\n\nfunc main() {\n\t// TODO: 让这句话在函数返回前才执行，而不是立刻打印。\n\tfmt.Println(\"统计完成\")\n\n\tquotient, remainder := divmod(17, 5)\n\tfmt.Println(\"商与余数:\", quotient, remainder)\n\n\tnext := makeCounter()\n\tfmt.Println(\"计数:\", next(), next(), next())\n}",
+      "task": "现在「统计完成」在 main 一开始就打印了。把它改成 defer 调用，让它最后输出：\n\n```\n商与余数: 3 2\n计数: 1 2 3\n统计完成\n```",
+      "expectedOutput": "商与余数: 3 2\n计数: 1 2 3\n统计完成",
+      "hints": [
+        "defer 注册的语句不会立刻执行，而是等到所在函数返回之前才执行。",
+        "把 `fmt.Println(\"统计完成\")` 改成 `defer fmt.Println(\"统计完成\")`，位置不用挪。"
+      ],
+      "quiz": {
+        "question": "关于 defer，下面哪种说法正确？",
+        "options": [
+          "defer 语句会立刻执行，然后继续往下走",
+          "defer 语句在函数返回前执行，多个 defer 按后进先出执行",
+          "defer 只能用在 main 函数里",
+          "defer 会阻止函数返回"
+        ],
+        "answer": 1,
+        "explanation": "defer 把调用推迟到所在函数返回之前；同一函数里注册多个 defer 时，后注册的先执行，即后进先出。"
+      },
+      "takeaways": [
+        "多返回值适合「结果 + 错误」这类成组结果，命名返回值可以简化 return。",
+        "闭包捕获外层变量，能在多次调用之间保存状态。",
+        "defer 在函数返回前执行，参数在注册时求值，多个 defer 后进先出。"
+      ]
+    },
+    {
+      "id": "struct-method",
+      "title": "结构体方法：值接收者与指针接收者",
+      "description": "读用值接收者，改状态用指针接收者。",
+      "duration": 12,
+      "source": "go-basic/go-grammar.md · 第八章 结构体和方法",
+      "concept": "结构体是 Go 里把一组相关字段打包在一起的自定义类型，用 `type Counter struct { count int }` 声明。方法是「绑定到某个类型上的函数」，写法是在 `func` 和函数名之间多一个接收者参数，例如 `func (c Counter) Value() int`；之后用 `counter.Value()` 调用。\n\n接收者有两种：值接收者 `(c Counter)` 拿到的是结构体的副本，方法里改字段不影响原对象；指针接收者 `(c *Counter)` 拿到的是地址，`c.count++` 会直接修改原对象。选择规则很简单：只读用值接收者，要改状态就用指针接收者，同一个类型的方法最好统一风格，避免一半改一半不改。\n\nGo 在调用时会自动取地址或自动解引用：变量 `counter` 是可寻址的，写 `counter.Increment()` 即使 Increment 定义在 `*Counter` 上也合法，编译器会当成 `(&counter).Increment()`。但把值装进接口时接口里存的是副本，方法集不匹配就会编译失败，所以需要指针接收者时往往让接口持有指针。\n\n> ⚠️ **常见坑**：初学者常把 `func (c Counter) Increment()` 写成值接收者，里面的 `c.count++` 只改了副本，调用方看到的计数永远是 0；要修改状态，把接收者改成 `*Counter`。",
+      "example": "package main\n\nimport \"fmt\"\n\n// Counter 记录点击次数，字段小写，只能通过方法读写。\ntype Counter struct {\n\tcount int\n}\n\n// Value 用值接收者读取：不修改对象，拿到副本也没关系。\nfunc (c Counter) Value() int {\n\treturn c.count\n}\n\n// Increment 用指针接收者修改：改动会直接落在原对象上。\nfunc (c *Counter) Increment() {\n\tc.count++\n}\n\nfunc main() {\n\tcounter := Counter{}\n\tfor i := 0; i < 3; i++ {\n\t\tcounter.Increment() // 等价于 (&counter).Increment()\n\t}\n\tfmt.Println(\"点击数:\", counter.Value())\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// Counter 记录点击次数，字段小写，只能通过方法读写。\ntype Counter struct {\n\tcount int\n}\n\n// Value 用值接收者读取：不修改对象，拿到副本也没关系。\nfunc (c Counter) Value() int {\n\treturn c.count\n}\n\n// Increment 现在用的是值接收者，改不了原对象。\nfunc (c Counter) Increment() {\n\tc.count++\n}\n\nfunc main() {\n\tcounter := Counter{}\n\tfor i := 0; i < 3; i++ {\n\t\tcounter.Increment()\n\t}\n\tfmt.Println(\"点击数:\", counter.Value())\n}",
+      "task": "现在 Increment 用的是值接收者，点击数一直是 0。修改它的接收者，让输出变成：\n\n```\n点击数: 3\n```",
+      "expectedOutput": "点击数: 3",
+      "hints": [
+        "值接收者拿到的是结构体副本，方法里对字段的修改不会影响调用方的对象。",
+        "把 `func (c Counter) Increment()` 改成 `func (c *Counter) Increment()`，函数体不用动。"
+      ],
+      "quiz": {
+        "question": "什么情况下应该使用指针接收者？",
+        "options": [
+          "只需要读取字段时",
+          "需要在方法里修改接收者，或者接收者结构体比较大时",
+          "方法不需要参数时",
+          "接收者是 string 类型时"
+        ],
+        "answer": 1,
+        "explanation": "指针接收者让方法能改到原对象，也避免复制大结构体；只是读取且结构体很小时，值接收者更简单。"
+      },
+      "takeaways": [
+        "方法就是带接收者的函数，接收者写在 func 与函数名之间。",
+        "值接收者操作副本，指针接收者能修改原对象。",
+        "对可寻址的变量调用指针接收者方法时，Go 会自动取地址。"
+      ]
+    },
+    {
+      "id": "error-wrap",
+      "title": "错误处理：返回错误与 %w 包装",
+      "description": "错误是普通返回值，用 fmt.Errorf 补上上下文。",
+      "duration": 12,
+      "source": "go-basic/go-grammar.md · 第九章 错误处理和测试",
+      "concept": "Go 不抛异常，而是把错误当成普通返回值：error 是一个接口（一份「必须具备哪些方法才算这个类型」的约定），任何实现了 `Error() string` 的类型都满足它。约定是把错误放在最后一个返回值，调用方用 `if err != nil` 显式检查——错误路径一眼可见，不会被悄悄吞掉，代价是多写几行判断。\n\n构造错误有两种常见方式：用 `fmt.Errorf` 生成带格式的错误，例如 `fmt.Errorf(\"score=%d 超出 0 到 100\", score)`；或者定义自己的错误类型，例如 `type RangeError struct { Field string; Value int }`，再实现 `func (e *RangeError) Error() string`，让错误里带上结构化信息。两者都满足 error 接口，可以直接 return 和打印。\n\n需要保留原始错误时用 `%w` 包装（wrap，把内层错误串进错误链）：`fmt.Errorf(\"保存成绩失败: %w\", err)`。用 `%v` 只会把内层错误拍平成字符串，类型信息随之丢失；只有 `%w` 能保留错误链，之后才能用 errors.Is / errors.As 判断具体是哪个错误（练习环境只导出 fmt、strings、strconv、math，所以示例用 fmt.Errorf 演示包装与输出）。\n\n> ⚠️ **常见坑**：拿到 err 后只打印不返回、或者用 `_` 忽略，都会把错误吞掉；错误信息要带上「哪一步失败」的上下文，否则排查时只剩一句无头无尾的报错。",
+      "example": "package main\n\nimport \"fmt\"\n\n// checkScore 校验成绩：越界时构造一个说明原因的错误。\nfunc checkScore(score int) (string, error) {\n\tif score < 0 || score > 100 {\n\t\treturn \"\", fmt.Errorf(\"score=%d 超出 0 到 100\", score)\n\t}\n\tif score >= 90 {\n\t\treturn \"优秀\", nil\n\t}\n\treturn \"合格\", nil\n}\n\n// saveScore 用 %w 包装下层错误，补上「哪一步失败」的上下文。\nfunc saveScore(score int) error {\n\tlevel, err := checkScore(score)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"保存成绩失败: %w\", err)\n\t}\n\tfmt.Println(\"保存成功:\", score, level)\n\treturn nil\n}\n\nfunc main() {\n\tfor _, score := range []int{99, -3} {\n\t\tif err := saveScore(score); err != nil {\n\t\t\tfmt.Println(\"错误:\", err)\n\t\t}\n\t}\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// checkScore 校验成绩：越界时构造一个说明原因的错误。\nfunc checkScore(score int) (string, error) {\n\tif score < 0 || score > 100 {\n\t\treturn \"\", fmt.Errorf(\"score=%d 超出 0 到 100\", score)\n\t}\n\tif score >= 90 {\n\t\treturn \"优秀\", nil\n\t}\n\treturn \"合格\", nil\n}\n\n// saveScore 直接返回原始错误，没有说明是哪一步失败。\nfunc saveScore(score int) error {\n\tlevel, err := checkScore(score)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfmt.Println(\"保存成功:\", score, level)\n\treturn nil\n}\n\nfunc main() {\n\tfor _, score := range []int{99, -3} {\n\t\tif err := saveScore(score); err != nil {\n\t\t\tfmt.Println(\"错误:\", err)\n\t\t}\n\t}\n}",
+      "task": "现在 saveScore 直接返回原始错误，看不出是哪一步失败。用 fmt.Errorf 包装它，补上「保存成绩失败: 」前缀，让输出变成：\n\n```\n保存成功: 99 优秀\n错误: 保存成绩失败: score=-3 超出 0 到 100\n```",
+      "expectedOutput": "保存成功: 99 优秀\n错误: 保存成绩失败: score=-3 超出 0 到 100",
+      "hints": [
+        "错误需要补充「哪一步失败」的上下文，再返回给调用方。",
+        "把 `return err` 改成 `return fmt.Errorf(\"保存成绩失败: %w\", err)`。"
+      ],
+      "quiz": {
+        "question": "用 fmt.Errorf 包装错误时，为什么建议用 %w 而不是 %v？",
+        "options": [
+          "%w 输出的错误信息更长更详细",
+          "%w 会保留错误链，之后可以用 errors.Is / errors.As 判断原始错误",
+          "%w 会让程序在出错时自动退出",
+          "%v 只能用于字符串参数"
+        ],
+        "answer": 1,
+        "explanation": "%w 会把原始错误包进新错误并保留错误链，便于用 errors.Is / errors.As 判断；%v 只是把错误变成字符串，原始错误类型的信息就丢了。"
+      },
+      "takeaways": [
+        "error 是接口，错误通过最后一个返回值传递，调用方必须显式检查。",
+        "自定义错误类型只要实现 Error() string 就满足 error 接口。",
+        "fmt.Errorf 配合 %w 能补充上下文并保留错误链。"
+      ]
+    }
+  ]
+}

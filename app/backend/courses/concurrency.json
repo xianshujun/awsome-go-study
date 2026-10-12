@@ -1,0 +1,211 @@
+{
+  "order": 2,
+  "course": {
+    "id": "concurrency",
+    "title": "Go 语言基础 · 并发",
+    "description": "对照 go-basic/go-concurrency.md：从 goroutine、channel 到工作池与管道，把并发写成可验证的代码。",
+    "level": "基础",
+    "duration": "约 60 分钟",
+    "accent": "#2e57e8"
+  },
+  "lessons": [
+    {
+      "id": "goroutine-done",
+      "title": "goroutine 与 done 通道：等子任务结束",
+      "description": "用 go 启动子任务，用 done 通道代替 WaitGroup 等它收工。",
+      "duration": 8,
+      "source": "go-basic/go-concurrency.md · 第一章 并发编程基础 · 1.2 goroutine",
+      "concept": "goroutine（Go 运行时调度的轻量级线程）是 Go 并发的起跑线：在函数调用前加一个 `go`，它就交给运行时在另一个 goroutine 里执行。`go` 只是「登记任务」，它立刻返回、不会等函数跑完，main 会继续往下走——所以子任务的输出什么时候出现，不能想当然。\n\n为什么必须显式等待：**main 函数返回时，所有还在跑的 goroutine 会被直接终结**，没打印的结果就永远看不到了。真实项目里常用 `sync.WaitGroup`（签到表：`Add` 记人数、`Done` 划掉一个、`Wait` 等凑齐）；练习环境没有 sync 包，我们就用 **done 通道**代替：子任务干完 `close(done)`，main 用 `<-done` 阻塞等待。\n\n用 `close` 而不是发送数据，是因为关闭是**广播**语义：无论多少个等待方，`<-done` 都会立刻返回；而「等一会儿再说」的 `time.Sleep` 既猜不准时间，也没法表达「真的干完了」。\n\n> ⚠️ **常见坑**：忘了 `close(done)`，main 会永久阻塞在 `<-done` 上（练习环境会报「运行超时」）；反过来，忘了等待就直接打印，main 可能提前退出，子任务的输出时有时无。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tdone := make(chan struct{})\n\n\t// go 只是把任务交给运行时，main 不会停下来等它跑完。\n\tgo func() {\n\t\ttotal := 0\n\t\tfor i := 1; i <= 100; i++ {\n\t\t\ttotal += i\n\t\t}\n\t\tfmt.Println(\"子任务结果:\", total)\n\t\t// 干完就关闭 done：close 是广播，等待方立刻被唤醒。\n\t\tclose(done)\n\t}()\n\n\t// 没有 sync.WaitGroup，就用「等通道」代替「等签到表」。\n\t<-done\n\tfmt.Println(\"main: 子任务已完成，安全退出\")\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tdone := make(chan struct{})\n\n\tgo func() {\n\t\ttotal := 0\n\t\tfor i := 1; i <= 100; i++ {\n\t\t\ttotal += i\n\t\t}\n\t\tfmt.Println(\"子任务结果:\", total)\n\t\t// 这里少了一句：子任务干完了，main 却还在等信号。\n\t}()\n\n\t<-done\n\tfmt.Println(\"main: 子任务已完成，安全退出\")\n}\n",
+      "task": "子任务已经把 1 到 100 累加完并打印了结果，但它没有通知 main，`<-done` 会一直等下去（运行报超时）。\n\n在子任务结束前补上 `close(done)`，让输出补齐为：\n\n```\n子任务结果: 5050\nmain: 子任务已完成，安全退出\n```",
+      "expectedOutput": "子任务结果: 5050\nmain: 子任务已完成，安全退出",
+      "hints": [
+        "done 的类型是 `chan struct{}`，信号本身不携带数据，用 `close(done)` 广播最合适。",
+        "close 之后所有 `<-done` 立刻返回；没人关闭，main 就会一直等（练习环境报「运行超时」）。",
+        "把关闭语句放在 `fmt.Println` 之后，保证结果先打印、再通知 main。"
+      ],
+      "quiz": {
+        "question": "练习环境里没有 sync.WaitGroup，下面哪种写法能让 main 等到子任务结束？",
+        "options": [
+          "子任务结束时 `close(done)`，main 里用 `<-done` 等待",
+          "子任务结束时 `done <- struct{}{}`，main 不做任何接收，直接往下执行",
+          "在子任务外面用 for 循环空转若干次，等它跑完",
+          "无法实现：没有 sync 包就只能靠 time.Sleep 猜时间"
+        ],
+        "answer": 0,
+        "explanation": "close(done) 是广播信号，所有等待方会立刻返回；main 用 `<-done` 阻塞等待，效果等价于 WaitGroup 的 Add(1) + Wait。只发送不接收，信号没人接手，main 也得不到任何保证。"
+      },
+      "takeaways": [
+        "`go` 启动的 goroutine 不会被自动等待，main 返回时它们会被直接终结。",
+        "没有 WaitGroup 时，用 done 通道做完成通知：子任务 close(done)，main `<-done`。",
+        "close 是广播语义，适合「只通知结束」的场景；不要用 sleep 猜子任务有没有跑完。"
+      ]
+    },
+    {
+      "id": "channel-pair",
+      "title": "无缓冲 channel：发送与接收配对",
+      "description": "用 channel 把结果送回 main，并用固定接收顺序保证输出稳定。",
+      "duration": 10,
+      "source": "go-basic/go-concurrency.md · 第一章 并发编程基础 · 1.3 channel",
+      "concept": "channel（通道）是 goroutine 之间的传送带：`ch <- 101` 把数据放上传送带，`<-ch` 从另一头取走。它是有类型的——`chan int` 只能传整数，编译期就能挡住传错类型，这正是 Go 提倡的「用通信来共享内存」。\n\n无缓冲通道（`make(chan int)`，容量为 0）的发送和接收必须**配对**：没有接收方时发送方会一直阻塞在发送那一行；没有发送方时接收方也会一直阻塞。这个「交接点」本身就是一次同步，所以两个 goroutine 不需要额外加锁，也不需要 sleep 来对齐节奏。\n\n并发写代码时还要保证**输出稳定**：两个 goroutine 谁先跑完由调度器决定，但只要 main 按固定顺序接收、打印，最终输出的顺序就是确定的——这正是可复现、可调试的关键。\n\n> 💡 **技巧**：把「并发算」和「顺序印」分开：goroutine 只负责生产数据，main 负责按固定顺序接收并打印，输出就不会忽左忽右。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tleft := make(chan int)\n\tright := make(chan int)\n\n\t// 无缓冲通道：没人接收时，发送方会一直阻塞在发送这一行。\n\tgo func() {\n\t\tleft <- 101\n\t}()\n\tgo func() {\n\t\tright <- 202\n\t}()\n\n\t// 按 left、right 的固定顺序接收：谁先发完都不影响打印顺序。\n\tfmt.Println(\"先收:\", <-left)\n\tfmt.Println(\"后收:\", <-right)\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tleft := make(chan int)\n\tright := make(chan int)\n\n\tgo func() {\n\t\tleft <- 101\n\t}()\n\tgo func() {\n\t\tright <- 202\n\t}()\n\n\t// 两条接收语句的顺序反了，打印出来的顺序也跟着反了。\n\tfmt.Println(\"先收:\", <-right)\n\tfmt.Println(\"后收:\", <-left)\n}\n",
+      "task": "main 里两条接收语句的顺序写反了，两个值被交叉取走，输出变成了「先收: 202 / 后收: 101」。\n\n把接收顺序改回来（先 left 后 right），让输出固定为：\n\n```\n先收: 101\n后收: 202\n```",
+      "expectedOutput": "先收: 101\n后收: 202",
+      "hints": [
+        "哪条接收语句写在前面，就先取出那个通道里的数据并打印。",
+        "两个 goroutine 谁先发送完并不影响结果：无缓冲通道的收发在交接点同步。",
+        "并发程序也要能稳定复现，靠的就是 main 里固定的接收顺序。"
+      ],
+      "quiz": {
+        "question": "无缓冲 channel 的发送操作会在什么情况下阻塞？",
+        "options": [
+          "永远不阻塞，数据会先暂存起来",
+          "没有接收方就绪时，发送方一直阻塞在发送那一行",
+          "只有缓冲区满了才阻塞",
+          "只有在 goroutine 里发送时才会阻塞"
+        ],
+        "answer": 1,
+        "explanation": "无缓冲通道没有存放数据的地方，发送与接收必须在交接点同步：接收方没就绪，发送方就一直等；反过来接收方也要等发送方到场。"
+      },
+      "takeaways": [
+        "channel 是有类型的管道，用 `<-` 发送和接收数据。",
+        "无缓冲通道的发送与接收必须配对，谁先到谁阻塞等待对方。",
+        "goroutine 的完成顺序不确定，main 里按固定顺序接收和打印才能得到稳定输出。"
+      ]
+    },
+    {
+      "id": "channel-buffer",
+      "title": "带缓冲 channel：容量与 len / cap",
+      "description": "用缓冲区让发送不必等接收方，看清容量占满后会怎样。",
+      "duration": 10,
+      "source": "go-basic/go-concurrency.md · 第一章 并发编程基础 · 1.3 channel",
+      "concept": "带缓冲通道（`make(chan int, 3)`）像在传送带旁多放了一个货架：容量 3 表示可以先把 3 个值放在货架上，发送方不必等到接收方到场。`len(ch)` 是货架上当前的存货数量，`cap(ch)` 是货架总容量。\n\n为什么需要它：缓冲区能把发送和接收的节奏解耦，起到削峰的作用。但它**不是无限的**——缓冲区被占满后，下一次发送照样会阻塞到有人取走一个值；如果始终没人接收，程序就永久停在那一行。\n\n关闭和遍历也有讲究：`close(ch)` 之后用 `for v := range ch` 会把缓冲里剩下的值取完再结束；如果忘了 close，range 把缓冲取空后还会继续等下一批数据，程序同样卡住。\n\n> ⚠️ **常见坑**：容量要 ≥ 本次最多积压的元素数；缓冲区满了还继续发送会永久阻塞。另外，向已关闭的通道发送会 panic，关闭通道的一方应当是唯一的发送方。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// 容量 3：缓冲区没满时，发送方不必等接收方到场。\n\tch := make(chan int, 3)\n\tch <- 10\n\tch <- 20\n\tch <- 30\n\tfmt.Println(\"缓冲区占用:\", len(ch), \"容量:\", cap(ch))\n\n\t// 关闭后 range 会把缓冲里剩下的数据取完再结束，不会一直等。\n\tclose(ch)\n\n\tsum := 0\n\tfor v := range ch {\n\t\tsum += v\n\t}\n\tfmt.Println(\"总和:\", sum)\n\tfmt.Println(\"取完后占用:\", len(ch))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// 容量只有 2，却要放 3 个值：第 3 次发送会一直等接收方。\n\tch := make(chan int, 2)\n\tch <- 10\n\tch <- 20\n\tch <- 30\n\tfmt.Println(\"缓冲区占用:\", len(ch), \"容量:\", cap(ch))\n\n\tclose(ch)\n\n\tsum := 0\n\tfor v := range ch {\n\t\tsum += v\n\t}\n\tfmt.Println(\"总和:\", sum)\n\tfmt.Println(\"取完后占用:\", len(ch))\n}\n",
+      "task": "容量只有 2，却要连续放 3 个值，第 3 次发送会一直等接收方（运行报超时）。\n\n把容量改成 3，让三次发送都不阻塞，输出：\n\n```\n缓冲区占用: 3 容量: 3\n总和: 60\n取完后占用: 0\n```",
+      "expectedOutput": "缓冲区占用: 3 容量: 3\n总和: 60\n取完后占用: 0",
+      "hints": [
+        "`make(chan int, n)` 里的 n 是缓冲区能同时存放的元素个数。",
+        "缓冲区满了以后，发送方要等接收方取走一个才能继续；本次没有任何接收方在跑，所以会卡死。",
+        "`cap(ch)` 是容量、`len(ch)` 是当前存量；放进 3 个值后 len 应该正好等于 cap。"
+      ],
+      "quiz": {
+        "question": "`ch := make(chan int, 2)` 之后连续执行 `ch <- 1; ch <- 2; ch <- 3`，会发生什么？",
+        "options": [
+          "第三个值覆盖最早的值，程序照常继续",
+          "第三条发送会阻塞，直到有接收方取走一个值腾出空间",
+          "编译报错，缓冲区会溢出",
+          "程序立刻 panic，缓冲区越界"
+        ],
+        "answer": 1,
+        "explanation": "缓冲通道只提供暂时的解耦，容量占满后发送照样要等接收方；它不会丢弃数据，也不会越界 panic（向已关闭的通道发送才会 panic）。"
+      },
+      "takeaways": [
+        "`make(chan T, n)` 的 n 是缓冲容量，len 是当前存量，cap 是总容量。",
+        "缓冲区未满时发送不阻塞，满了以后发送方必须等接收方腾出空间。",
+        "close 后 range 会把缓冲里的数据取完再结束；不关闭，range 会一直等下去。"
+      ]
+    },
+    {
+      "id": "select-multiplex",
+      "title": "select 多路复用与通道关闭检测",
+      "description": "用 select 同时监听多个通道，用 ok 判断通道是否已经关闭。",
+      "duration": 12,
+      "source": "go-basic/go-concurrency.md · 第一章 并发编程基础 · 1.3 channel",
+      "concept": "select（多路复用）让一个 goroutine 同时监听多个通道的收发，就像前台同时盯着几部电话，哪部先响接哪部：只有一个分支就绪就执行它；多个都就绪时随机挑一个；一个都没就绪就阻塞，除非写了 `default`（立即走 default，不等待）。\n\n接收分支的「就绪」有两种情况：通道里有数据，或者**通道已经被关闭**。所以关闭的通道会让 `case v := <-ch` 立刻返回——返回的是元素类型的**零值**。不判断就会把 0 当成真实数据算进结果，这是最隐蔽的一类并发 bug。\n\n标准做法是两值接收：`v, ok := <-ch`。ok 为 true 表示拿到真数据；ok 为 false 表示通道已关闭且数据取空，此时 v 是零值，应该当作「结束」而不是「结果」。通道关闭后接收不再阻塞，反而会一直返回零值，所以循环的真正结束条件应该是 ok，而不是数数。\n\n> ⚠️ **常见坑**：select 分支里的 `break` 只结束 select，不会跳出外层 for 循环；要跳出循环必须给循环加标签（如 `loop:`）再写 `break loop`。\n> 💡 **技巧**：`select` 加 `default` 可以做非阻塞探测——有数据就处理，没有就先去干别的事，绝不傻等。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tresults := make(chan int, 2)\n\tdone := make(chan struct{}) // 一直不关闭：本次任务没有被取消\n\n\t// 生产者写完两个结果就关闭通道，表示不会再有数据了。\n\tgo func() {\n\t\tresults <- 3\n\t\tresults <- 4\n\t\tclose(results)\n\t}()\n\n\ttotal := 0\nloop:\n\t// 循环上界故意给大：真正的结束条件由 ok 决定，而不是数数。\n\tfor i := 0; i < 5; i++ {\n\t\tselect {\n\t\tcase v, ok := <-results:\n\t\t\tif !ok {\n\t\t\t\tfmt.Println(\"数据已取完，退出\")\n\t\t\t\tbreak loop // select 里的 break 只跳出 select，跳出 for 要加标签\n\t\t\t}\n\t\t\ttotal += v\n\t\tcase <-done:\n\t\t\tfmt.Println(\"收到取消信号\")\n\t\t\tbreak loop\n\t\t}\n\t}\n\tfmt.Println(\"合计:\", total)\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tresults := make(chan int, 2)\n\tdone := make(chan struct{}) // 一直不关闭：本次任务没有被取消\n\n\tgo func() {\n\t\tresults <- 3\n\t\tresults <- 4\n\t\tclose(results)\n\t}()\n\n\ttotal := 0\nloop:\n\tfor i := 0; i < 5; i++ {\n\t\tselect {\n\t\tcase v := <-results:\n\t\t\t// 通道关闭后这里会立刻返回零值，程序却把它当成了真结果。\n\t\t\ttotal += v\n\t\tcase <-done:\n\t\t\tfmt.Println(\"收到取消信号\")\n\t\t\tbreak loop\n\t\t}\n\t}\n\tfmt.Println(\"合计:\", total)\n}\n",
+      "task": "生产者只发了两个结果（3 和 4）就关闭了通道，但收集端少了 `ok` 判断：通道关闭后接收会立刻返回零值 0，程序把它当成了真结果，还少打印一行「数据已取完，退出」。\n\n用 `v, ok := <-results` 接收，ok 为 false 时打印提示并用 `break loop` 跳出循环，输出：\n\n```\n数据已取完，退出\n合计: 7\n```",
+      "expectedOutput": "数据已取完，退出\n合计: 7",
+      "hints": [
+        "两值接收 `v, ok := <-ch` 中，ok 为 false 表示通道已关闭且没有剩余数据。",
+        "跳出循环要用标签：写成 `break loop`，单独的 break 只会结束本次 select。",
+        "收到 3 和 4 时正常累加；第三次接收时通道已关闭，正好用 ok 判断并退出。"
+      ],
+      "quiz": {
+        "question": "在一个已经被关闭的通道上继续执行接收操作，会得到什么？",
+        "options": [
+          "阻塞，直到有人重新向它发送数据",
+          "立刻返回元素类型的零值，并且 ok 为 false",
+          "直接 panic，提示 channel closed",
+          "返回缓冲里最后一个值，ok 为 true"
+        ],
+        "answer": 1,
+        "explanation": "关闭后接收不再阻塞：会先把缓冲里剩余的数据按序取完（此时 ok 仍为 true），取空之后每次接收都立刻返回零值且 ok 为 false。向已关闭通道发送才会 panic。"
+      },
+      "takeaways": [
+        "select 同时监听多个通道，只执行就绪的分支；都没就绪就阻塞，加 default 则不阻塞。",
+        "`v, ok := <-ch` 是判断通道关闭的标准方式，ok 为 false 时 v 是零值。",
+        "select 里的 break 只跳出 select，跳出 for 循环要配合标签。"
+      ]
+    },
+    {
+      "id": "worker-pool",
+      "title": "Worker Pool：任务分发与结果收集",
+      "description": "用固定数量的 worker 消费任务通道，再把结果按任务编号归位。",
+      "duration": 15,
+      "source": "go-basic/go-concurrency.md · 第二章 并发模式 · 2.1 Worker Pool 模式",
+      "concept": "Worker Pool（工作池）像银行只开固定几个柜台：所有任务统一在 jobs 通道里排队，固定数量的 worker goroutine 轮流取号办理，结果写进 results 通道。比起「来一个任务就 `go` 一个 goroutine」，它能把并发量压在可预期的范围内，避免一瞬间拉起上万协程把下游打垮。\n\n退出的约定很重要：任务方发完所有任务后 `close(jobs)`，worker 用 `for job := range jobs` 消费，通道关闭且任务取空后 range 自然结束，worker 得以优雅退出。忘了 close，worker 会一直等在通道上，造成 goroutine 泄漏。\n\n结果收集要小心顺序：两个 worker 谁先算完由调度决定，让 worker 直接打印会让输出忽前忽后。可靠的做法是**先收集、后打印**：用 `Result{JobID, Value}` 把任务编号一起带回，main 里按 `values[r.JobID-1]` 归位，最后按编号顺序遍历打印，输出与并发快慢无关。\n\n> ⚠️ **常见坑**：结果收集次数必须和任务数量一致。少收一个，轻则漏数据，重则让取值循环永远等不到结果而卡死。",
+      "example": "package main\n\nimport \"fmt\"\n\ntype Result struct{ JobID, Value int }\n\n// worker 从 jobs 连续取任务：jobs 关闭后 range 结束，worker 才退出。\nfunc worker(jobs <-chan int, results chan<- Result) {\n\tfor job := range jobs {\n\t\tresults <- Result{JobID: job, Value: job * job}\n\t}\n}\n\nfunc main() {\n\tjobs := make(chan int, 4)\n\tresults := make(chan Result, 4)\n\tfor w := 1; w <= 2; w++ {\n\t\tgo worker(jobs, results)\n\t}\n\tfor j := 1; j <= 4; j++ {\n\t\tjobs <- j\n\t}\n\tclose(jobs) // 任务发完就关闭，worker 干完手里的活会自己退出\n\n\t// 完成顺序由调度决定，先按 JobID 归位，输出才和并发快慢无关。\n\tvalues := make([]int, 4)\n\tfor i := 0; i < 4; i++ {\n\t\tr := <-results\n\t\tvalues[r.JobID-1] = r.Value\n\t}\n\tfor i, v := range values {\n\t\tfmt.Printf(\"任务 %d 的平方: %d\\n\", i+1, v)\n\t}\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\ntype Result struct{ JobID, Value int }\n\nfunc worker(jobs <-chan int, results chan<- Result) {\n\tfor job := range jobs {\n\t\tresults <- Result{JobID: job, Value: job * job}\n\t}\n}\n\nfunc main() {\n\tjobs := make(chan int, 4)\n\tresults := make(chan Result, 4)\n\tfor w := 1; w <= 2; w++ {\n\t\tgo worker(jobs, results)\n\t}\n\tfor j := 1; j <= 4; j++ {\n\t\tjobs <- j\n\t}\n\tclose(jobs)\n\n\t// 只收 3 个结果：有一个任务的成绩永远填不上。\n\tvalues := make([]int, 4)\n\tfor i := 0; i < 3; i++ {\n\t\tr := <-results\n\t\tvalues[r.JobID-1] = r.Value\n\t}\n\tfor i, v := range values {\n\t\tfmt.Printf(\"任务 %d 的平方: %d\\n\", i+1, v)\n\t}\n}\n",
+      "task": "一共发了 4 个任务，结果收集循环却只收 3 个：总有一个任务的结果没人接，它对应的格子还停在初始值 0（缺哪一个由 worker 的完成顺序决定，所以每次跑都可能不一样）。\n\n把收集次数改成 4，让每个任务都有一行输出：\n\n```\n任务 1 的平方: 1\n任务 2 的平方: 4\n任务 3 的平方: 9\n任务 4 的平方: 16\n```",
+      "expectedOutput": "任务 1 的平方: 1\n任务 2 的平方: 4\n任务 3 的平方: 9\n任务 4 的平方: 16",
+      "hints": [
+        "任务发了 4 个，结果就要收 4 个：收集次数和任务数必须对齐。",
+        "`values[r.JobID-1] = r.Value` 按任务编号归位，所以谁先算完都不会串行。",
+        "把收集循环的 `i < 3` 改成 `i < 4`，正好对应 4 个任务。"
+      ],
+      "quiz": {
+        "question": "Worker Pool 里 `close(jobs)` 的作用是什么？",
+        "options": [
+          "清空 jobs 通道里还没处理的任务",
+          "告诉所有 worker：不会再有新任务了，range 取完后可以退出",
+          "立刻终止正在执行的 worker",
+          "防止其它 goroutine 向 jobs 发送任务时 panic"
+        ],
+        "answer": 1,
+        "explanation": "close 是给接收方的广播信号：`for job := range jobs` 在通道关闭且数据取完后结束循环，worker 才能正常退出。它不会清空数据、不会杀 worker，关闭后继续发送一样会 panic。"
+      },
+      "takeaways": [
+        "Worker Pool 用固定数量的 worker 消费任务通道，把并发量控制在可预期范围。",
+        "任务发完要 close(jobs)，worker 的 range 才能正常结束，否则会 goroutine 泄漏。",
+        "worker 完成顺序不确定：结果先收集、再按固定顺序打印，输出才稳定。"
+      ]
+    },
+    {
+      "id": "pipeline-cancel",
+      "title": "Pipeline：阶段接力与 done 取消",
+      "description": "用 channel 串起流水线的各阶段，并用 done 通道传递取消信号。",
+      "duration": 15,
+      "source": "go-basic/go-concurrency.md · 第二章 并发模式 · 2.2 Pipeline 模式",
+      "concept": "Pipeline（管道，即数据流水线）就是工厂流水线：原料从第一道工序进入，每个阶段只做自己那道加工，做完立刻通过通道交给下一阶段。每个阶段都是一个 goroutine，阶段之间只靠 channel 连接，于是各阶段能同时开工，整体吞吐取决于最慢的那一站。\n\n流水线能整条收尾，靠的是**关闭的传递**：每个阶段读完上游后关闭自己的输出通道，下游的 `for v := range in` 取完数据就自然结束，一棒一棒传下去。少了这个 close，下游会永远等下一批数据，整条流水线吊死在最下游的 range 上。\n\n取消也沿同一条路传递：真实项目用 context（上下文，携带取消与超时信号）通知所有 goroutine 收工；在只能用 channel 的环境里，done 通道就是它的最小替身——阶段里用 `select` 监听 done，一旦 done 被关闭就 `return` 提前下班，配合 `defer close(out)` 保证下游不会被吊住。\n\n> ⚠️ **常见坑**：阶段结束时忘了关闭自己的输出通道，下游的 range 会永久阻塞（goroutine 泄漏）。\n> 💡 **技巧**：取消检查写成 `select { case <-done: return; default: 正常传递 }`，既不阻塞数据传递，又能在下一轮循环立刻响应取消。\n\n> ⚠️ **常见坑**：阶段结束时忘了关闭自己的输出通道，下游的 range 会永久阻塞（goroutine 泄漏）。\n> 💡 **技巧**：取消检查写成 `select { case <-done: return; default: 正常传递 }`，既不阻塞数据传递，又能在下一轮循环立刻响应取消。把 `close(done)` 加在 `main` 里，`guarded` 阶段就会提前收工——本课为了输出稳定先不关闭它。",
+      "example": "package main\n\nimport \"fmt\"\n\n// guarded 是带取消能力的阶段：done 关闭后在下一轮检查时退出。\n// 注意取消是协作式的：已经进入发送的那个元素仍会送达，下游要能排空。\nfunc guarded(in <-chan int, factor int, done <-chan struct{}) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor n := range in {\n\t\t\tselect {\n\t\t\tcase <-done:\n\t\t\t\treturn\n\t\t\tdefault:\n\t\t\t\tout <- n * factor\n\t\t\t}\n\t\t}\n\t}()\n\treturn out\n}\n\n// relay 是纯接力阶段：没有取消分支，读完上游后关闭自己的下游。\nfunc relay(in <-chan int, factor int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor n := range in {\n\t\t\tout <- n * factor\n\t\t}\n\t}()\n\treturn out\n}\n\nfunc main() {\n\tnums := make(chan int, 4)\n\tfor n := 1; n <= 4; n++ {\n\t\tnums <- n\n\t}\n\tclose(nums) // 上游关闭后，下游 range 取完 4 个元素就会结束\n\n\tdone := make(chan struct{}) // 本次不关闭：先看完整的流水线\n\tdoubled := guarded(nums, 2, done)\n\tfor v := range relay(doubled, 10) {\n\t\tfmt.Println(v)\n\t}\n\tfmt.Println(\"流水线结束\")\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc guarded(in <-chan int, factor int, done <-chan struct{}) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\tdefer close(out)\n\t\tfor n := range in {\n\t\t\tselect {\n\t\t\tcase <-done:\n\t\t\t\treturn\n\t\t\tdefault:\n\t\t\t\tout <- n * factor\n\t\t\t}\n\t\t}\n\t}()\n\treturn out\n}\n\nfunc relay(in <-chan int, factor int) <-chan int {\n\tout := make(chan int)\n\tgo func() {\n\t\t// 少了一句 defer close(out)：下游的 range 永远等不到结束。\n\t\tfor n := range in {\n\t\t\tout <- n * factor\n\t\t}\n\t}()\n\treturn out\n}\n\nfunc main() {\n\tnums := make(chan int, 4)\n\tfor n := 1; n <= 4; n++ {\n\t\tnums <- n\n\t}\n\tclose(nums)\n\n\tdone := make(chan struct{})\n\tdoubled := guarded(nums, 2, done)\n\tfor v := range relay(doubled, 10) {\n\t\tfmt.Println(v)\n\t}\n\tfmt.Println(\"流水线结束\")\n}",
+      "task": "`relay` 阶段结束时忘了关闭自己的输出通道，最下游的 `for v := range ...` 取完数据后一直等不到结束（运行会超时）。\n\n在 `relay` 的 goroutine 里补上关闭 `out` 的语句，让流水线整条收尾，输出：\n\n```\n20\n40\n60\n80\n流水线结束\n```",
+      "expectedOutput": "20\n40\n60\n80\n流水线结束",
+      "hints": [
+        "`defer close(out)` 放在 goroutine 开头，循环结束或 return 时都一定会执行。",
+        "只有关闭下游通道，下游的 `for range` 才会在数据取完后结束循环，整条流水线才能依次收尾。",
+        "guarded 里的取消分支 return 时同样靠 defer close 收尾，下游才不会卡住。"
+      ],
+      "quiz": {
+        "question": "Pipeline 的某个阶段没有关闭自己的输出通道，会有什么后果？",
+        "options": [
+          "下游的 for range 取完数据后等不到结束，永久阻塞",
+          "已经发送出去的数据会丢失",
+          "程序会立刻 panic",
+          "没有影响：阶段退出时 Go 会自动关闭通道"
+        ],
+        "answer": 0,
+        "explanation": "通道不会被自动关闭，只有显式 close 才能让 range 结束。阶段跑完却不关闭下游通道，下游就会一直阻塞在该通道上，造成 goroutine 泄漏。"
+      },
+      "takeaways": [
+        "Pipeline 把任务拆成多个阶段，阶段间用 channel 连接，各阶段可以同时工作。",
+        "每个阶段读完上游后要关闭自己的下游通道，整条流水线才能依次收尾。",
+        "done 通道是 context 取消信号的最小模型：select 收到就提前 return。"
+      ]
+    }
+  ]
+}

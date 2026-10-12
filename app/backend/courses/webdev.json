@@ -1,0 +1,183 @@
+{
+  "order": 6,
+  "course": {
+    "id": "webdev",
+    "title": "Go 开发实战 · 网络开发",
+    "description": "对照 go-practice/go-webdev.md：把 HTTP 请求响应、Handler、路由与并发处理讲成能运行的模型。",
+    "level": "实战",
+    "duration": "约 55 分钟",
+    "accent": "#2e57e8"
+  },
+  "lessons": [
+    {
+      "id": "http-model",
+      "title": "HTTP 请求与响应模型",
+      "description": "用结构体与纯函数复刻一次「请求进来、响应出去」。",
+      "duration": 12,
+      "source": "go-practice/go-webdev.md · 第一章 HTTP 服务",
+      "concept": "一次 HTTP 请求的完整链路是：客户端建立 TCP 连接，把「方法 + 路径 + 头 + 体」组成的请求报文发过来；服务器解析成请求对象，交给 Handler 处理，再把状态码、响应头、响应体写回去。`net/http` 里对应的两个核心类型就是 `*http.Request`（方法、URL、Header、Body、Context）和 `http.ResponseWriter`（你把内容和状态码写进去，它负责变成合法的响应报文）。\n\n练习环境跑不了 `net/http`（没有真实网络，也不开放标准库），所以这里用**结构体**做请求与响应的模型、用**纯函数**做 Handler：输入 `Request`，输出 `Response`。写成纯函数（同样的输入永远得到同样的输出、没有隐藏状态）还有个额外好处：它可以直接被表驱动测试覆盖。\n\n> ⚠️ **常见坑**：真实代码里 `w.Header().Set(...)` 必须在 `WriteHeader`/`Write` 之前调用，之后再设置会被忽略并打印 `superfluous response.WriteHeader call`；响应一旦开始写入，状态码就不能再改。\n\n下面全部是内存中的函数调用：没有 socket，也没有监听端口，但「请求 → 处理 → 响应」的映射关系与真实 Handler 完全一致。",
+      "example": "package main\n\nimport \"fmt\"\n\n// Request 模型：真实 net/http 的 *http.Request 也装着方法、路径、查询这些信息。\ntype Request struct {\n\tMethod string\n\tQuery  map[string]string\n}\n// Response 模型：状态码 + 响应体，对应 ResponseWriter 要写回客户端的内容。\ntype Response struct{ Status int; Body string }\n\n// Handle 是纯函数：同样的请求必得同样的响应，没有隐藏状态，也好测试。\nfunc Handle(req Request) Response {\n\tif req.Method != \"GET\" {\n\t\treturn Response{Status: 405, Body: \"方法不允许\"}\n\t}\n\tif name := req.Query[\"name\"]; name != \"\" {\n\t\treturn Response{Status: 200, Body: \"你好，\" + name}\n\t}\n\treturn Response{Status: 200, Body: \"你好，访客\"}\n}\n\nfunc main() {\n\tfor _, req := range []Request{\n\t\t{Method: \"GET\", Query: map[string]string{\"name\": \"Go\"}},\n\t\t{Method: \"GET\"},\n\t\t{Method: \"POST\"},\n\t} {\n\t\tresp := Handle(req)\n\t\tfmt.Println(req.Method, \"->\", resp.Status, resp.Body)\n\t}\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\n// Request / Response 是内存模型：练习环境没有真实网络可以收发。\ntype Request struct {\n\tMethod string\n\tQuery  map[string]string\n}\ntype Response struct{ Status int; Body string }\n\n// Handle 对任何请求都返回 200，也没有缺省值。\nfunc Handle(req Request) Response {\n\treturn Response{Status: 200, Body: \"你好，\" + req.Query[\"name\"]}\n}\n\nfunc main() {\n\tfor _, req := range []Request{\n\t\t{Method: \"GET\", Query: map[string]string{\"name\": \"Go\"}},\n\t\t{Method: \"GET\"},\n\t\t{Method: \"POST\"},\n\t} {\n\t\tresp := Handle(req)\n\t\tfmt.Println(req.Method, \"->\", resp.Status, resp.Body)\n\t}\n}\n",
+      "task": "`Handle` 太宽松了：任何方法都返回 200，缺少 `name` 参数时会拼出难看的响应。请补上：\n\n1. 方法不是 `GET` 时返回状态码 `405` 与响应体「方法不允许」；\n2. 查询参数 `name` 为空时用默认值「访客」；\n3. 依次处理三个请求，输出：\n\n```\nGET -> 200 你好，Go\nGET -> 200 你好，访客\nPOST -> 405 方法不允许\n```",
+      "expectedOutput": "GET -> 200 你好，Go\nGET -> 200 你好，访客\nPOST -> 405 方法不允许",
+      "hints": [
+        "先判断方法：`if req.Method != \"GET\" { return Response{Status: 405, Body: \"方法不允许\"} }`，非 GET 直接返回，不再往下走。",
+        "取参数用 `name := req.Query[\"name\"]`：从 map 里取不存在的键只会得到零值（空字符串），不会 panic。",
+        "把空名字换成「访客」再拼响应体：`if name == \"\" { name = \"访客\" }`。"
+      ],
+      "quiz": {
+        "question": "练习里用结构体 `Request` 和纯函数 `Handle` 模拟 HTTP，而不是直接写 `http.HandleFunc`，主要原因是？",
+        "options": [
+          "结构体一定比接口性能更好",
+          "练习环境不支持 net/http，而且纯函数更容易理解与测试「请求到响应」的映射",
+          "Go 的 Handler 必须返回结构体",
+          "纯函数可以直接监听端口"
+        ],
+        "answer": 1,
+        "explanation": "net/http 需要真实的网络监听和完整标准库，而练习环境只开放 fmt、strings、strconv、math；用结构体加纯函数能保留「请求 → 路由 → 响应」的映射关系，还能直接被表驱动测试覆盖。"
+      },
+      "takeaways": [
+        "一次 HTTP 请求 = 方法 + 路径 + 头 + 体；响应 = 状态码 + 头 + 体。",
+        "net/http 的两个核心是 *http.Request 与 http.ResponseWriter，Handler 就是处理请求的函数或类型。",
+        "把 Handler 写成纯函数，好读也好测。",
+        "响应头要在写状态码与响应体之前设置。"
+      ]
+    },
+    {
+      "id": "handler-pattern",
+      "title": "Handler 与中间件：责任划分",
+      "description": "用函数类型复刻 Handler，看中间件如何一层层包住业务。",
+      "duration": 10,
+      "source": "go-practice/go-webdev.md · 第一章 HTTP 服务",
+      "concept": "`net/http` 的核心接口只有 `ServeHTTP(w, r)` 一个方法：任何实现了它的类型都是 Handler；普通函数想当 Handler，就用 `http.HandlerFunc` 适配一下。中间件则更进一步：它**接收一个 Handler、返回一个新的 Handler**，在业务前后插入自己的逻辑（日志、鉴权、恢复 panic）。\n\n多个中间件串起来就是「洋葱模型」：请求从最外层进入，逐层往里穿；业务处理完，响应再从里往外冒。所以嵌套顺序决定了谁在外、谁在内——鉴权在外层时，没通过就直接返回，内层的日志中间件连执行机会都没有。\n\n> 💡 **技巧**：中间件要守好「只做自己的事」：日志中间件不判断权限，鉴权中间件不拼响应体；每个中间件都能拿到 `next`，但不要替 `next` 做业务决定。\n\n练习用 `func(path string) string` 模拟 Handler（路径进、响应体出），用同一个函数类型做中间件，完整复刻洋葱的两层顺序：\n真实项目里它就是 `http.Handler` 接口；练习环境跑不了 net/http，所以这里是可运行模型。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// Handler 是简化版 ServeHTTP：入参路径，返回响应体。\ntype Handler func(path string) string\n\n// Log 中间件接收 Handler 并返回新的 Handler，在业务前后插入逻辑。\nfunc Log(next Handler) Handler {\n\treturn func(path string) string {\n\t\tfmt.Println(\"->\", path)\n\t\tbody := next(path)\n\t\tfmt.Println(\"<-\", body)\n\t\treturn body\n\t}\n}\n\n// Auth 只放行 /home，其余路径直接 403，不进入业务 Handler。\nfunc Auth(next Handler) Handler {\n\treturn func(path string) string {\n\t\tif !strings.HasPrefix(path, \"/home\") {\n\t\t\treturn \"403 无权限\"\n\t\t}\n\t\treturn next(path)\n\t}\n}\n\nfunc main() {\n\thandler := Log(Auth(func(path string) string { return \"200 首页\" }))\n\tfmt.Println(\"结果:\", handler(\"/admin\"))\n\tfmt.Println(\"结果:\", handler(\"/home\"))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// Handler 是简化版 ServeHTTP：入参路径，返回响应体。\ntype Handler func(path string) string\n\n// Log 中间件接收 Handler 并返回新的 Handler，在业务前后插入逻辑。\nfunc Log(next Handler) Handler {\n\treturn func(path string) string {\n\t\tfmt.Println(\"->\", path)\n\t\tbody := next(path)\n\t\tfmt.Println(\"<-\", body)\n\t\treturn body\n\t}\n}\n\n// Auth 只放行 /home，其余路径直接 403，不进入业务 Handler。\nfunc Auth(next Handler) Handler {\n\treturn func(path string) string {\n\t\tif !strings.HasPrefix(path, \"/home\") {\n\t\t\treturn \"403 无权限\"\n\t\t}\n\t\treturn next(path)\n\t}\n}\n\nfunc main() {\n\thandler := Auth(Log(func(path string) string { return \"200 首页\" })) // 顺序装反了：Auth 在外层\n\tfmt.Println(\"结果:\", handler(\"/admin\"))\n\tfmt.Println(\"结果:\", handler(\"/home\"))\n}\n",
+      "task": "现在的中间件顺序装反了：`handler := Auth(Log(...))` 让 `Auth` 成了最外层，`/admin` 请求被直接拒绝，日志一行也没留下。请调换嵌套顺序（`Log` 在外、`Auth` 在内），让输出变成：\n\n```\n-> /admin\n<- 403 无权限\n结果: 403 无权限\n-> /home\n<- 200 首页\n结果: 200 首页\n```\n\n思考：为什么 `/admin` 现在也能留下日志，而 `/home` 的日志行位置不变？",
+      "expectedOutput": "-> /admin\n<- 403 无权限\n结果: 403 无权限\n-> /home\n<- 200 首页\n结果: 200 首页",
+      "hints": [
+        "把 `Auth(Log(...))` 改成 `Log(Auth(...))`：写在最左边的中间件在最外层，请求先经过它。",
+        "执行方向从外往里：Log 先打印 `-> 路径`，再调用 Auth；Auth 判定不通过时直接返回，不会继续往里走。",
+        "内部的业务函数 `func(path string) string { return \"200 首页\" }` 不用改，只调换两个中间件的嵌套顺序。"
+      ],
+      "quiz": {
+        "question": "`handler := Log(Auth(business))` 中，请求 `/home` 到达时哪个函数最先执行？",
+        "options": [
+          "business 业务函数",
+          "Auth 鉴权中间件",
+          "Log 日志中间件",
+          "顺序随机，由运行时决定"
+        ],
+        "answer": 2,
+        "explanation": "中间件是「接收 Handler、返回 Handler」的包装：写在最左边的在最外层，请求先从 Log 进入；响应则按相反方向从 business 回到 Log。执行顺序是确定的，与运行时无关。"
+      },
+      "takeaways": [
+        "Handler 的本质是「能处理请求」，函数与结构体都能当 Handler。",
+        "中间件就是接收 Handler、返回 Handler 的高阶函数。",
+        "洋葱模型：请求由外向内，响应由内向外，嵌套顺序决定层序。",
+        "外层中间件可以短路请求，内层根本不会被执行。"
+      ]
+    },
+    {
+      "id": "router-table",
+      "title": "路由表与路径匹配",
+      "description": "用映射表实现「精确匹配 + 最长前缀匹配」。",
+      "duration": 10,
+      "source": "go-practice/go-webdev.md · 第一章 HTTP 服务",
+      "concept": "`http.ServeMux` 本质上就是一张「路径 → Handler」的映射表，它按优先级挑选规则：**精确路径 > 更长的前缀 > 更短的前缀**。以 `/` 结尾的 pattern 是子树匹配（`/static/` 能匹配 `/static/css/app.css`），一个都没命中才返回 404；Go 1.22+ 在路径存在但方法不匹配时返回 405。\n\n用映射表复刻的关键只有两条：先查精确表，再在「以 `/` 结尾」的规则里挑**最长**的那个前缀。最长优先很重要——`/users/` 与 `/users/admin/` 同时能匹配一条路径时必须选更具体的那个，否则更细的规则永远生效不了。\n\n> ⚠️ **常见坑**：单独一个 `\"/\"` 既想当首页、又是所有路径的前缀，必须特殊处理（长度大于 1 才参与前缀匹配），否则所有未命中的路径都会掉到首页，永远返回不了 404。\n\n练习里用普通 `map[string]string` 当路由表，值就是响应体：键以斜杠结尾代表前缀规则，其余是精确匹配。\nnet/http 在练习环境里不可用，这是它匹配逻辑的可运行模型；真实项目把响应体换成 Handler 即可。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// Router 是“路径 → 响应”的映射表；键以斜杠结尾表示前缀规则，其余是精确匹配。\ntype Router map[string]string\n\n// Lookup 先精确匹配，再选最长的前缀规则：ServeMux 也是长前缀优先。\nfunc (r Router) Lookup(path string) string {\n\tif body, ok := r[path]; ok {\n\t\treturn body\n\t}\n\tbest, body := \"\", \"\"\n\tfor rule, b := range r {\n\t\tif len(rule) > 1 && strings.HasSuffix(rule, \"/\") &&\n\t\t\tstrings.HasPrefix(path, rule) && len(rule) > len(best) {\n\t\t\tbest, body = rule, b\n\t\t}\n\t}\n\tif best == \"\" {\n\t\treturn \"404 未找到\"\n\t}\n\treturn body\n}\n\nfunc main() {\n\trouter := Router{\"/\": \"首页\", \"/static/\": \"静态资源\", \"/users/\": \"用户详情\"}\n\tfor _, path := range []string{\"/\", \"/users/42\", \"/static/app.css\", \"/nope\"} {\n\t\tfmt.Println(path, \"->\", router.Lookup(path))\n\t}\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\n// Router 是“路径 → 响应”的映射表；键以斜杠结尾表示前缀规则，其余是精确匹配。\ntype Router map[string]string\n\n// Lookup 目前只会精确匹配：前缀规则完全没有生效。\nfunc (r Router) Lookup(path string) string {\n\tif body, ok := r[path]; ok {\n\t\treturn body\n\t}\n\treturn \"404 未找到\"\n}\n\nfunc main() {\n\trouter := Router{\"/\": \"首页\", \"/static/\": \"静态资源\", \"/users/\": \"用户详情\"}\n\tfor _, path := range []string{\"/\", \"/users/42\", \"/static/app.css\", \"/nope\"} {\n\t\tfmt.Println(path, \"->\", router.Lookup(path))\n\t}\n}\n",
+      "task": "`Lookup` 现在只会精确匹配，`/users/42` 与 `/static/app.css` 都掉进了 404。请实现前缀规则：\n\n1. 精确匹配失败后，遍历路由表：键以 `/` 结尾且长度大于 1 的规则才参与前缀匹配（跳过 `\"/\"` 这个兜底键）；\n2. 多条前缀规则都能匹配时选最长的那个（用 `len(rule) > len(best)` 比较）；\n3. 一个都没命中时返回 `404 未找到`。\n\n期望输出：\n\n```\n/ -> 首页\n/users/42 -> 用户详情\n/static/app.css -> 静态资源\n/nope -> 404 未找到\n```",
+      "expectedOutput": "/ -> 首页\n/users/42 -> 用户详情\n/static/app.css -> 静态资源\n/nope -> 404 未找到",
+      "hints": [
+        "精确匹配之后加一段：`best, body := \"\", \"\"`，然后 `for rule, b := range r` 遍历所有规则。",
+        "前缀条件用 `len(rule) > 1 && strings.HasSuffix(rule, \"/\") && strings.HasPrefix(path, rule)`，再加 `&& len(rule) > len(best)` 保证最长优先。",
+        "循环结束后如果 `best == \"\"`，说明没有任何前缀命中，返回 `404 未找到`；别忘了在 starter 的 import 里补上 `strings`。"
+      ],
+      "quiz": {
+        "question": "路由表里同时有 `/users/` 和 `/users/admin/` 两条前缀规则，请求路径 `/users/admin/list` 应该命中哪一条？",
+        "options": [
+          "`/users/`，因为它在表里出现得更早",
+          "`/users/admin/`，因为前缀匹配取最长的那条",
+          "两条都命中，响应会合并",
+          "都不命中，直接返回 404"
+        ],
+        "answer": 1,
+        "explanation": "ServeMux 的匹配规则是精确 > 长前缀 > 短前缀：多个前缀都匹配时必须选最长的那条，否则更具体的规则永远没有机会生效；注册顺序不决定优先级。"
+      },
+      "takeaways": [
+        "路由表就是「路径 → Handler」的映射，ServeMux 也不例外。",
+        "匹配顺序：精确 > 更长前缀 > 更短前缀，都没命中才 404。",
+        "以斜杠结尾的规则是子树匹配，根路径这种兜底键要特殊处理。",
+        "注册顺序不决定优先级，规则的精确程度才决定。"
+      ]
+    },
+    {
+      "id": "request-validate",
+      "title": "请求参数校验与错误响应",
+      "description": "把脏数据挡在业务门口，给调用方可定位的错误文案。",
+      "duration": 8,
+      "source": "go-practice/go-webdev.md · 第一章 HTTP 服务",
+      "concept": "客户端传来的任何东西都不可信：`?page=abc`、`?page=0`、少传参数，都可能让后面的逻辑出错。校验分两层——**语法校验**（格式对不对：能不能转成整数）与**业务校验**（能不能做：页码必须大于 0），两层都要做，缺一个都会漏。\n\n错误响应的关键是「让人能自己修」：说清哪个参数、收到了什么、期望什么（`page 需要大于 0，收到 0`），比一句「参数错误」有用得多。校验通过后再做类型转换，业务代码只处理强类型、已校验的数据——这就是「把脏数据挡在门口」。\n\n> 💡 **技巧**：参数缺失优先用默认值（`page` 默认 1），不要一律报错；只有用户显式传了非法值才返回 400，能少一次往返就少一次。\n\n练习用 `strconv` 和错误文案模拟一次参数校验：四种输入（正常值、缺失、非整数、越界）分别得到 200 或 400，\n响应就是返回的字符串——没有真实网络，但状态码与文案的组织方式和线上一致。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\n// Validate 校验 page 参数：空值给默认值，非法值返回可定位的 400 文案。\nfunc Validate(raw string) string {\n\ttext := strings.TrimSpace(raw)\n\tif text == \"\" {\n\t\treturn \"200 page=1\"\n\t}\n\tpage, err := strconv.Atoi(text)\n\tif err != nil {\n\t\treturn \"400 page 需要整数，收到 \" + text\n\t}\n\tif page < 1 {\n\t\treturn \"400 page 需要大于 0，收到 \" + text\n\t}\n\treturn \"200 page=\" + strconv.Itoa(page)\n}\n\nfunc main() {\n\tfor _, raw := range []string{\"2\", \"\", \"abc\", \"0\"} {\n\t\tfmt.Println(Validate(raw))\n\t}\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\n// Validate 现在只做转换：空值与非法值都会被悄悄变成 0，脏数据直接漏进业务。\nfunc Validate(raw string) string {\n\tpage, _ := strconv.Atoi(strings.TrimSpace(raw))\n\treturn \"200 page=\" + strconv.Itoa(page)\n}\n\nfunc main() {\n\tfor _, raw := range []string{\"2\", \"\", \"abc\", \"0\"} {\n\t\tfmt.Println(Validate(raw))\n\t}\n}\n",
+      "task": "`Validate` 现在只做转换：空值和非法值都被悄悄变成 0。请让它给出正确的响应：\n\n1. 参数为空或全是空白时用默认值 1，返回 `200 page=1`；\n2. `Atoi` 失败时返回 `400 page 需要整数，收到 原始值`；\n3. 转换成功但小于 1 时返回 `400 page 需要大于 0，收到 原始值`；\n4. 合法时返回 `200 page=参数值`（用 `strconv.Itoa` 拼回字符串）。\n\n期望输出：\n\n```\n200 page=2\n200 page=1\n400 page 需要整数，收到 abc\n400 page 需要大于 0，收到 0\n```",
+      "expectedOutput": "200 page=2\n200 page=1\n400 page 需要整数，收到 abc\n400 page 需要大于 0，收到 0",
+      "hints": [
+        "先用 `strings.TrimSpace` 去掉空白，再判断 `text == \"\"`：空值走默认值分支，直接返回 `200 page=1`。",
+        "`Atoi` 返回两个值：`page, err := strconv.Atoi(text)`；`err != nil` 表示格式错误，返回 400 并把原始文本带进文案。",
+        "格式对了还要查业务规则：`if page < 1` 返回 400；成功路径用 `strconv.Itoa(page)` 把整数拼回字符串。"
+      ],
+      "quiz": {
+        "question": "对于 `?page=abc` 这种请求，为什么要在进入业务逻辑前返回 400？",
+        "options": [
+          "因为 Go 对非数字字符串做减法会 panic",
+          "把脏数据挡在门口：业务层只处理已校验的强类型数据，错误文案还能告诉调用方怎么改",
+          "400 的响应会被客户端缓存，节省带宽",
+          "为了让访问日志更短"
+        ],
+        "answer": 1,
+        "explanation": "校验的意义是让业务层只面对合法输入：格式（能不能转）与业务约束（范围）都在边界完成；错误信息带上参数名、收到的值与期望，调用方才能自己修正。"
+      },
+      "takeaways": [
+        "永远不要相信客户端：语法校验与业务校验两层都要有。",
+        "参数缺失用默认值，显式传入非法值才返回 400。",
+        "错误文案要包含参数名、收到的值和期望，方便定位。",
+        "先校验再转换类型，业务层只处理强类型数据。"
+      ]
+    },
+    {
+      "id": "concurrency-timeout",
+      "title": "并发处理与超时降级",
+      "description": "用 goroutine 并发处理请求，用 select 判定超时并降级。",
+      "duration": 12,
+      "source": "go-practice/go-webdev.md · 第一章 HTTP 服务",
+      "concept": "Go 处理并发的默认姿势很直接：一个请求一个 goroutine，各自独立跑，用 channel 把结果送回来。但这样做的前提是**下游一定会返回**：如果下游卡住，goroutine 就一直挂着，内存和连接都不会释放。所以真实项目里必须给每次外部调用设超时（`http.Client{Timeout: ...}` 或 `context.WithTimeout`），超时就放弃等待、返回降级结果（比如缓存里的旧数据）。\n\n超时的标准写法是 `select`：同时等待「结果通道」和「超时通道」，谁先到就执行谁。练习环境没有 `time` 包（`time.After` 用不了），所以这里用**可运行的模型**代替：先收齐所有任务的通知，再用 `select` 加 `default` 非阻塞地取结果——通道里没有值，就等价于「已经超时」，返回降级的兜底内容。\n\n> ⚠️ **常见坑**：并发读写共享变量必须用 channel 或锁保护；结果要**先收齐再按固定顺序打印**，否则每次运行的输出顺序都不一样。`select` 里如果没有 `default`、所有分支又都不可达，就会永久阻塞。\n\n下面的模型里两个请求并发执行（耗时 1 在预算内、耗时 9 超时），主协程收齐通知后按顺序打印：真实代码在这里会是 `http.Client.Do` 配合 `context` 超时。",
+      "example": "package main\n\nimport \"fmt\"\n\n// handle 在独立 goroutine 里模拟一次下游调用：cost 是耗时步数，budget 是超时预算。\n// 真实场景这里会是带 context 超时的 http.Client，练习里用可运行的模型代替。\nfunc handle(cost, budget int, done chan bool) chan string {\n\tout := make(chan string, 1)\n\tgo func() {\n\t\tif cost <= budget {\n\t\t\tout <- \"成功\"\n\t\t}\n\t\tdone <- true // 成败都要通知主协程，避免“没跑完就判超时”\n\t}()\n\treturn out\n}\n\n// collect 用 select 加 default 非阻塞取值：拿不到结果即超时，走降级。\nfunc collect(out chan string) string {\n\tselect {\n\tcase data := <-out:\n\t\treturn data\n\tdefault:\n\t\treturn \"降级：返回缓存\"\n\t}\n}\n\nfunc main() {\n\tdone := make(chan bool, 2)\n\tfast, slow := handle(1, 3, done), handle(9, 3, done)\n\t<-done\n\t<-done\n\tfmt.Println(\"请求A:\", collect(fast))\n\tfmt.Println(\"请求B:\", collect(slow))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\n// handle 在独立 goroutine 里模拟一次下游调用：也还没有超时判断。\nfunc handle(cost, budget int, done chan bool) chan string {\n\tout := make(chan string, 1)\n\tgo func() {\n\t\tout <- \"成功\" // 无论耗时多少都算成功\n\t\tdone <- true\n\t}()\n\treturn out\n}\n\n// collect 用 select 加 default 非阻塞取值：拿不到结果即超时，走降级。\nfunc collect(out chan string) string {\n\tselect {\n\tcase data := <-out:\n\t\treturn data\n\tdefault:\n\t\treturn \"降级：返回缓存\"\n\t}\n}\n\nfunc main() {\n\tdone := make(chan bool, 2)\n\tfast, slow := handle(1, 3, done), handle(9, 3, done)\n\t<-done\n\t<-done\n\tfmt.Println(\"请求A:\", collect(fast))\n\tfmt.Println(\"请求B:\", collect(slow))\n}\n",
+      "task": "模型里还缺超时判断：`handle` 无论耗时多少都返回成功，`slow` 请求永远不会降级。请补上：\n\n1. 在 goroutine 里判断 `cost <= budget`，只有预算内完成才把 `\"成功\"` 写进结果通道；\n2. 超过预算时不写结果（模拟下游超时），但仍然要 `done <- true` 通知主协程；\n3. 让输出变成：\n\n```\n请求A: 成功\n请求B: 降级：返回缓存\n```\n\n想一想：为什么 `done <- true` 必须放在 `if` 外面？如果只在成功路径发送，主协程会停在 `<-done` 上永远等下去。",
+      "expectedOutput": "请求A: 成功\n请求B: 降级：返回缓存",
+      "hints": [
+        "把 `out <- \"成功\"` 包进 `if cost <= budget { ... }`；`done <- true` 留在 `if` 外面，两条路径都要通知主协程。",
+        "`collect` 里的 `select` 加 `default` 是非阻塞取值：结果通道为空时立刻走 `default`，正好表示「结果没到 = 超时」。",
+        "文案和打印顺序都不用改，改完只有「请求B」这一行会从成功变成降级。"
+      ],
+      "quiz": {
+        "question": "为什么练习里的「超时」用 `select` 加 `default` 表示，而不是用 `time.After`？",
+        "options": [
+          "select 的执行速度一定比 time.After 快",
+          "练习环境只开放 fmt、strings、strconv、math，没有 time 包；用「结果通道为空」等价表示超时",
+          "time.After 会导致 goroutine 泄漏",
+          "select 只能和 default 一起使用"
+        ],
+        "answer": 1,
+        "explanation": "真实代码用 context 或 http.Client.Timeout 控制超时；练习环境不允许 import time，所以用「非阻塞尝试取值、取不到即超时」的模型复刻同样的判断逻辑，并发与降级的思路完全一致。"
+      },
+      "takeaways": [
+        "一个请求一个 goroutine，结果通过 channel 回传，避免共享变量。",
+        "下游调用必须有超时，否则 goroutine 与连接会一直挂着。",
+        "超时处理用 select 同时等结果与超时；超时后返回降级内容而不是错误。",
+        "并发结果要收齐再按固定顺序打印，输出才稳定。"
+      ]
+    }
+  ]
+}

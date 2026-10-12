@@ -1,0 +1,181 @@
+{
+  "order": 3,
+  "course": {
+    "id": "deepdive",
+    "title": "Go 语言进阶 · 语言深挖",
+    "description": "对照 go-advance/go-deepdive.md：从内存布局、GC、调度器到反射，理解语言背后的机制。",
+    "level": "进阶",
+    "duration": "约 55 分钟",
+    "accent": "#0fa3b1"
+  },
+  "lessons": [
+    {
+      "id": "memory-value-pointer",
+      "title": "值语义与指针语义",
+      "description": "函数传参传的是副本还是地址，决定了数据能不能被改动。",
+      "duration": 10,
+      "source": "go-advance/go-deepdive.md · 第一章 Go语言的内存管理",
+      "concept": "**值语义**指赋值和传参时会复制一份数据，接收方改自己的副本不会影响原变量；**指针语义**指传递的是对象的地址（也就是数据在内存里的位置），双方操作的是同一个对象。生活化类比：值语义像把文件复印一份交给对方，他怎么涂改都动不到你的原件；指针语义像把保险柜钥匙交出去，他打开后改的就是你的东西。\n\n在 Go 里，基本类型、数组、结构体默认都是值语义；切片、映射、通道写起来像「引用」，但本质仍是值——只不过这个值内部装着一个指向底层数据的指针。到了内存层面，函数返回的地址会「逃逸（escape，指变量的生命周期超出当前函数，只能放到堆上）」到堆内存，由垃圾回收器管理；没有逃逸的变量留在栈上，随函数返回自动释放。所以「传指针一定更快」并不成立：复制一个小结构体往往比一次堆分配加回收更便宜，真正需要传指针的理由是「必须修改原对象」或者对象本身很大。\n\n> ⚠️ **常见坑**：用值接收者时，函数里的 `c.Count++` 改的是副本，调用方的字段纹丝不动。要改原对象，参数类型要写成 `*Counter`、调用时传 `&c`；函数体里写 `c.Count++` 即可，Go 会自动解引用，不需要写 `(*c).Count++`。",
+      "example": "package main\n\nimport \"fmt\"\n\ntype Counter struct {\n\tName  string\n\tCount int\n}\n\n// IncByValue 拿到的是 Counter 的副本，改副本不会影响调用方。\nfunc IncByValue(c Counter) {\n\tc.Count++\n}\n\n// IncByPointer 拿到的是地址，*c 直接改的就是调用方的那个对象。\nfunc IncByPointer(c *Counter) {\n\tc.Count++\n}\n\nfunc main() {\n\tc := Counter{Name: \"订单\", Count: 1}\n\tIncByValue(c)\n\tfmt.Println(\"值传递后:\", c.Count)\n\tIncByPointer(&c)\n\tfmt.Println(\"指针传递后:\", c.Count)\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\ntype Counter struct {\n\tName  string\n\tCount int\n}\n\n// IncByValue 拿到的是 Counter 的副本，改副本不会影响调用方。\nfunc IncByValue(c Counter) {\n\tc.Count++\n}\n\n// TODO: 补一个接收 *Counter 的版本，让被调用者能改到调用方的对象。\n// 提示：函数签名写 func IncByXxx(c *Counter)，里面用 c.Count++ 即可。\n\nfunc main() {\n\tc := Counter{Name: \"订单\", Count: 1}\n\tIncByValue(c)\n\tfmt.Println(\"值传递后:\", c.Count)\n\t// TODO: 换成调用指针版本，并传入 c 的地址。\n\tIncByValue(c)\n\tfmt.Println(\"指针传递后:\", c.Count)\n}\n",
+      "task": "starter 里两次都调用值传递版本，所以第二行也打印 1。请照着 example 补一个接收 `*Counter` 的函数，并让第二次调用走指针传递，最终输出：\n\n```\n值传递后: 1\n指针传递后: 2\n```",
+      "expectedOutput": "值传递后: 1\n指针传递后: 2",
+      "hints": [
+        "值传递的 `IncByValue` 已经说明副本改不动原对象；指针版本的参数类型要写成 `*Counter`。",
+        "调用时用 `&c` 取地址。函数体里放心写 `c.Count++`，Go 会自动解引用指针，等价于 `(*c).Count++`。",
+        "预期两行分别是「值传递后: 1」和「指针传递后: 2」：第一次保持值传递，第二次换成新的指针函数即可。"
+      ],
+      "quiz": {
+        "question": "关于值语义与指针语义，下面哪种说法正确？",
+        "options": [
+          "传指针一定比传值快，所以任何场景都该用指针",
+          "值传递会复制一份数据，被调用方修改副本不会影响调用方",
+          "Go 的结构体只能通过指针传递",
+          "切片是引用类型，赋值时会复制整个底层数组"
+        ],
+        "answer": 1,
+        "explanation": "值传递复制副本，所以改不到调用方；指针能改原对象，但不代表更快——小对象复制往往比一次堆分配加回收更便宜。结构体可以按值传递；切片是值类型（内部含指向底层数组的指针），赋值时不会复制底层数组。"
+      },
+      "takeaways": [
+        "值语义复制数据，指针语义共享同一个对象。",
+        "想在被调用方修改调用方数据，必须传指针（参数类型或接收者带 *）。",
+        "逃逸分析决定变量放栈还是堆，传指针不一定更快。"
+      ]
+    },
+    {
+      "id": "slice-internals",
+      "title": "切片扩容与共享底层数组",
+      "description": "切片是「指针 + 长度 + 容量」，append 何时换数组决定数据是否共享。",
+      "duration": 12,
+      "source": "go-advance/go-deepdive.md · 第一章 Go语言的内存管理",
+      "concept": "切片不是数组，而是一个由三个字段组成的描述符：指向底层数组的指针、当前长度 `len`、容量 `cap`。生活化类比：切片像墙上的一扇窗，窗户能看到几个元素由长度决定，这扇窗最多能拉多长由容量决定，窗后的那面墙就是底层数组。\n\n`append` 的行为完全由容量决定：容量还够时，它直接往底层数组的下一个位置写入，所有共享这个数组的切片都会看到变化；容量不够时，运行时会申请一块更大的新数组、把老元素复制过去，从此新切片与旧的再无关系。也正因为返回值可能指向新数组，`append` 的结果必须接住。\n\n> ⚠️ **常见坑**：`view := base[:2]` 与 `base` 共享底层数组，`view[0] = 99` 会改到 `base[0]`；接着 `view = append(view, 7)` 在容量够时还会覆盖 `base[2]`。想让 view 真正独立，要显式复制一份（用 `copy` 复制到新切片，或者循环逐个赋值），别把切片表达式当成复制。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tbase := []int{1, 2, 3, 4}\n\t// base[:2] 只指向原底层数组的前两个位置，修改 view 会一起改到 base。\n\tview := base[:2]\n\tview[0] = 99\n\tfmt.Println(\"base:\", base)\n\tfmt.Println(\"view:\", view)\n\n\t// cap 还有空间，append 会直接写进 base 的第三个位置，并不换数组。\n\tview = append(view, 7)\n\tfmt.Println(\"append 后 base:\", base)\n\tfmt.Println(\"cap:\", cap(view))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tbase := []int{1, 2, 3, 4}\n\t// TODO: 现在 view 是重新构造的独立切片，改成与 base 共享底层数组的写法。\n\tview := []int{base[0], base[1]}\n\tview[0] = 99\n\tfmt.Println(\"base:\", base)\n\tfmt.Println(\"view:\", view)\n\n\t// TODO: 换掉上面的写法后，再观察 append 是否会覆盖 base 的第三个元素。\n\tview = append(view, 7)\n\tfmt.Println(\"append 后 base:\", base)\n\tfmt.Println(\"cap:\", cap(view))\n}\n",
+      "task": "starter 里的 `view` 是用 `[]int{base[0], base[1]}` 重新构造的独立切片，所以改 `view[0]` 不影响 `base`，后面的 append 也写不进 `base`。请改成与 `base` 共享底层数组的写法（切片表达式），让输出变成：\n\n```\nbase: [99 2 3 4]\nview: [99 2]\nappend 后 base: [99 2 7 4]\ncap: 4\n```",
+      "expectedOutput": "base: [99 2 3 4]\nview: [99 2]\nappend 后 base: [99 2 7 4]\ncap: 4",
+      "hints": [
+        "切片表达式 `base[:2]` 得到的就是与 base 共享底层数组的视图，长度 2、容量 4。",
+        "共享之后 `view[0] = 99` 会同时改到 `base[0]`；因为 cap(view) 还有空间，`append(view, 7)` 会直接写进 `base[2]`，不会换数组。",
+        "对照期望输出：base 变成 `[99 2 7 4]`，view 是 `[99 2]`，cap 仍然是 4。"
+      ],
+      "quiz": {
+        "question": "容量足够时执行 `s = append(s, x)`，下面描述正确的是？",
+        "options": [
+          "一定会分配新数组，然后复制全部元素",
+          "直接写入底层数组的下一个空位，与其他共享该数组的切片互相可见",
+          "一定会 panic",
+          "只把长度加一，不会真正写入数据"
+        ],
+        "answer": 1,
+        "explanation": "容量足够时 append 就地在底层数组的下一个位置写入，并返回更新后的切片头；只有容量不足才会申请更大的数组并复制元素。共享同一底层数组的其他切片因此能看到这次修改。"
+      },
+      "takeaways": [
+        "切片 = 指向底层数组的指针 + len + cap 三个信息。",
+        "切片表达式不复制数据，多个切片可能共享同一底层数组。",
+        "append 只在容量不足时分配新数组，返回值必须接住。"
+      ]
+    },
+    {
+      "id": "gc-lifecycle",
+      "title": "垃圾回收与对象生命周期",
+      "description": "从三色标记到触发条件，理解对象什么时候被判成垃圾。",
+      "duration": 12,
+      "source": "go-advance/go-deepdive.md · 第二章 Go语言的垃圾回收",
+      "concept": "Go 的垃圾回收采用**三色标记清除（用三种颜色区分对象状态的并发回收算法）**：对象一开始都是白色，表示「还没确认过、可能是垃圾」；从根对象（栈上的变量、全局变量等）出发能走到的对象染成灰色，表示「已知有用、但它引用的对象还没扫」；一个灰色对象引用的对象全部处理完后染黑，表示「确认存活」。标记结束后还留白色的对象就是没人能走到的垃圾，在清除阶段被回收。生活化类比：大扫除时从门口开始给东西贴标签，能一路走到的都贴黑，最后还贴着白色的直接扔掉。\n\nGC 的触发以**内存增长比例**为主：堆内存涨到「上次回收后存活堆大小 × (1 + GOGC/100)」时启动一轮，默认 GOGC=100，也就是堆翻倍就回收；此外还可以手动调用 runtime.GC()，或者用 GOMEMLIMIT 设置软内存上限兜底。Go 的 GC 是并发的，目标是把单次停顿压到几百微秒以内。\n\n对象什么时候「死」？Go 的判定是**可达性**：从根出发再也走不到，才是垃圾。另一种常见算法是引用计数（给每个对象记录被引用次数，次数归零就回收），实现简单，但遇到「两个对象互相引用、外界谁也指不到它们」的循环引用时会漏回收——这正是 Go 选择可达性分析的原因。生产上减轻 GC 压力最有效的办法是减少分配、复用对象（对象池）。\n\n> ⚠️ **常见坑**：手动 `runtime.GC()` 是阻塞式完整回收，放在热路径上会拖慢服务；直接关闭自动 GC（GOGC=off）几乎必然导致内存暴涨，除非配合 GOMEMLIMIT 兜底。这两个 API 在本练习环境里都不可用，这里只用文字讲清机制。",
+      "example": "package main\n\nimport \"fmt\"\n\n// edges[i] 是对象 i 引用的对象；0 是根，2 与 3 互相引用却无人可达。\nfunc main() {\n\tedges := [][]int{{1}, {}, {3}, {2}}\n\tmarked := make([]bool, len(edges))\n\n\tqueue := []int{0} // 根对象入队，相当于三色标记里的灰色集合\n\tfor len(queue) > 0 {\n\t\tcur := queue[0]\n\t\tqueue = queue[1:]\n\t\tmarked[cur] = true // 置黑；真实 GC 对已黑对象会直接跳过\n\t\tfor _, next := range edges[cur] {\n\t\t\tif !marked[next] {\n\t\t\t\tqueue = append(queue, next) // 引用到的对象置灰入队\n\t\t\t}\n\t\t}\n\t}\n\n\talive := 0\n\tfor _, ok := range marked {\n\t\tif ok {\n\t\t\talive++\n\t\t}\n\t}\n\tfmt.Println(\"存活对象:\", alive)\n\tfmt.Println(\"待回收对象:\", len(edges)-alive)\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// 对象 0 是根，可达 1；对象 2 与 3 互相引用，但从根走不到。\n\tedges := [][]int{{1}, {}, {3}, {2}}\n\n\t// TODO: 只统计\"被引用次数\"看不出循环引用，改成从根出发做可达性标记。\n\trefs := []int{0, 1, 1, 1}\n\talive, garbage := 0, 0\n\tfor _, n := range refs {\n\t\tif n == 0 {\n\t\t\tgarbage++\n\t\t} else {\n\t\t\talive++\n\t\t}\n\t}\n\t_ = edges\n\tfmt.Println(\"存活对象:\", alive)\n\tfmt.Println(\"待回收对象:\", garbage)\n}\n",
+      "task": "这一节用可运行的近似模型体会机制：真实 GC 是并发三色标记加写屏障，几十行练习代码只能还原它的判定核心——**可达性**。starter 用「引用计数」近似，只为被引用次数为 0 的对象判死刑，于是互相引用的对象 2 和 3 被误判为存活。请改成从根对象 0 出发做可达性标记（可以用队列做广度优先扩散），让输出变成：\n\n```\n存活对象: 2\n待回收对象: 2\n```",
+      "expectedOutput": "存活对象: 2\n待回收对象: 2",
+      "hints": [
+        "可达性标记就是真实 GC 的核心：维护一个待扫描队列（相当于灰色集合），先把根对象 0 放进去。",
+        "每次从队列取出一个对象，标记它存活，再把它引用到、且尚未标记的对象加入队列；用 `for len(queue) > 0` 一直处理到队列为空。",
+        "循环结束时 marked 里为 true 的是存活对象（0 和 1）；2 和 3 互相引用但没人指它们，仍然保持 false。"
+      ],
+      "quiz": {
+        "question": "关于垃圾回收，下面哪种说法正确？",
+        "options": [
+          "引用计数能正确回收循环引用的对象",
+          "可达性分析从根对象出发，走不到的对象才是垃圾",
+          "GOGC=100 表示每 100 秒触发一次 GC",
+          "runtime.GC() 是异步的，不会造成停顿"
+        ],
+        "answer": 1,
+        "explanation": "Go 用可达性分析：从栈、全局变量等根出发标记所有能走到的对象，剩下的才是垃圾，所以循环引用照样能被回收。GOGC 是堆增长百分比而不是时间；runtime.GC() 是阻塞式的完整回收，会带来停顿。"
+      },
+      "takeaways": [
+        "三色标记把「清扫垃圾」拆成可并发的增量步骤。",
+        "判定标准是可达性：从根出发走不到的对象才会被回收。",
+        "GC 主要按堆增长比例触发，GOGC 与 GOMEMLIMIT 可以调优。",
+        "减少分配、复用对象是降低 GC 成本的根本手段。"
+      ]
+    },
+    {
+      "id": "scheduler-gmp",
+      "title": "GMP 调度模型与协作",
+      "description": "G、M、P 各司其职，把大任务分片交给多个 goroutine 再汇总。",
+      "duration": 13,
+      "source": "go-advance/go-deepdive.md · 第三章 Go语言的调度器",
+      "concept": "调度器把「很多 goroutine」映射到「少量操作系统线程」上，核心是 GMP 三个角色：G 是 goroutine（一单任务），M 是 machine（操作系统线程，真正干活的工人），P 是 processor（工位，包含本地任务队列和分配缓存等资源）。生活化类比：包工头带队施工，工人必须先占到一个工位才能干活；工位数量由 `GOMAXPROCS` 决定（默认等于 CPU 核数），所以真正并行执行的 G 不会超过 P 的数量，但 G 可以远多于 P，靠快速轮转营造「大家同时都在跑」的效果。\n\n调度策略可以概括为「本地优先、全局兜底、工作窃取」：每个 P 自带本地队列，绝大多数调度不用加锁；本地队列空了就去全局队列拿，再空了就向其他 P 窃取一半任务。G 阻塞在系统调用上时，M 会让出 P 交给别的 M，避免其他任务被拖住；抢占式调度保证长时间计算的 goroutine 也会被打断，不会独占工位。\n\n落到写代码上，你能直接利用的就是「多个 goroutine 分片干活 + 用 channel 把结果交回主 goroutine 合并」。这是上层能表达的协作方式；队列管理、窃取与抢占则由运行时代劳，写代码时不用也不能手动干预。\n\n> ⚠️ **常见坑**：主 goroutine（main 函数）退出时，其他 goroutine 会被立刻终止，没算完的工作和没读走的结果都会丢。分片并行时必须用 channel 把每一份结果收齐再退出；本练习环境还限制单次运行最多 64 个 goroutine，别为了「并行」无脑开一堆。",
+      "example": "package main\n\nimport \"fmt\"\n\n// 把分片求和抽成函数，两个 goroutine 各算一半，再用 channel 交回结果。\nfunc sumOf(nums []int) int {\n\tsum := 0\n\tfor _, v := range nums {\n\t\tsum += v\n\t}\n\treturn sum\n}\n\nfunc main() {\n\tdata := []int{1, 2, 3, 4, 5, 6, 7, 8}\n\tmid := len(data) / 2\n\tpartials := make(chan int, 2)\n\n\tgo func() { partials <- sumOf(data[:mid]) }()\n\tgo func() { partials <- sumOf(data[mid:]) }()\n\n\ttotal := 0\n\tfor i := 0; i < 2; i++ {\n\t\ttotal += <-partials\n\t}\n\tfmt.Println(\"总分片:\", data[:mid], data[mid:])\n\tfmt.Println(\"总和:\", total)\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc sumOf(nums []int) int {\n\tsum := 0\n\tfor _, v := range nums {\n\t\tsum += v\n\t}\n\treturn sum\n}\n\nfunc main() {\n\tdata := []int{1, 2, 3, 4, 5, 6, 7, 8}\n\tmid := len(data) / 2\n\tpartials := make(chan int, 2)\n\n\tgo func() { partials <- sumOf(data[:mid]) }()\n\t// TODO: 第二个分片复制了前一个调用，改成处理 data[mid:]。\n\tgo func() { partials <- sumOf(data[:mid]) }()\n\n\ttotal := 0\n\tfor i := 0; i < 2; i++ {\n\t\ttotal += <-partials\n\t}\n\tfmt.Println(\"总分片:\", data[:mid], data[mid:])\n\tfmt.Println(\"总和:\", total)\n}\n",
+      "task": "这一节用可运行的分片汇总模型体会调度与协作：真实的 GMP 由运行时在底层完成队列管理、工作窃取和抢占，我们只能在用户层用 goroutine + channel 体会「多个任务同时推进、主任务收齐再合并」的形态。starter 的第二个分片复制了前一个调用，两片都在算 `data[:mid]`，所以总和是 20。请把第二个分片的区间改成 `data[mid:]`，让输出变成：\n\n```\n总分片: [1 2 3 4] [5 6 7 8]\n总和: 36\n```",
+      "expectedOutput": "总分片: [1 2 3 4] [5 6 7 8]\n总和: 36",
+      "hints": [
+        "两个 goroutine 各算一半：第一个已经算了 `data[:mid]`，第二个应该算 `data[mid:]`，两段合起来正好覆盖全部数据。",
+        "总和应当是 1 到 8 的累加结果 36；主 goroutine 用循环收两次 `<-partials` 再打印，保证结果收齐。",
+        "不要改动打印语句的位置：两行输出由主 goroutine 顺序打印，才不会出现 goroutine 之间的乱序。"
+      ],
+      "quiz": {
+        "question": "关于 GMP 调度模型，下面哪种说法正确？",
+        "options": [
+          "P 的数量默认等于 CPU 核数，并行执行的 G 不会超过 P 的数量",
+          "每个 goroutine 固定绑定一个操作系统线程，直到结束都不会换",
+          "P 的本地队列为空时只能原地等待",
+          "GOMAXPROCS 必须设置为小于 CPU 核数"
+        ],
+        "answer": 0,
+        "explanation": "P 的数量由 GOMAXPROCS 决定，默认等于 CPU 核数，真正并行执行的 G 上限就是 P 的数量，而 G 可以远多于 P、靠调度轮转。G 不固定绑定线程；本地队列为空时会先看全局队列，再向其他 P 窃取任务。"
+      },
+      "takeaways": [
+        "G 是任务、M 是操作系统线程、P 是执行资源与本地队列。",
+        "调度按「本地优先、全局兜底、工作窃取」进行，尽量减少锁竞争。",
+        "并行度受 P 的数量限制，goroutine 数量可以远多于 P。",
+        "main 结束时其他 goroutine 会被终止，结果要先收齐再退出。"
+      ]
+    },
+    {
+      "id": "reflection-basics",
+      "title": "反射：运行期看类型",
+      "description": "反射在运行期检查类型与值；练习环境不能 import reflect，先用 type switch 体会同一套思路。",
+      "duration": 12,
+      "source": "go-advance/go-deepdive.md · 第四章 Go语言的反射",
+      "concept": "**反射（reflection）**让程序在运行期检查变量的类型和值：普通代码在编译期就把类型定死了，反射则像「现场拆开箱子看里面装的是什么」，能拿到描述类型的 `reflect.Type` 和描述值的 `reflect.Value`，看类型名、种类、字段，甚至在可设置的前提下改掉值。它的代价是慢——要在运行期查类型表、做类型断言、层层封装；但 `encoding/json` 这类通用序列化、ORM、依赖注入框架必须在「编译期完全不知道类型」的前提下工作，所以反射是框架的地基。\n\n练习环境只开放了 fmt、strings、strconv、math，不能 `import \"reflect\"`。这一节用**类型断言（type assertion，从接口值里取出具体类型）**和 **type switch（按动态类型走不同分支）**做近似：真实反射的第一步也是「看类型再分支」，只是它能在运行期处理编译期完全未知的类型。核心思想一样：数据装在 `interface{}` 里，先问「你是什么类型」，再决定怎么处理。\n\n> ⚠️ **常见坑**：类型断言 `v.(int)` 在类型不符时会直接 panic，用 `x, ok := v.(int)` 或 `switch x := v.(type)` 才安全。另外 `reflect.ValueOf(x)` 拿到的只是值的拷贝，想修改必须传指针、用 `.Elem()` 取到可寻址的值，并且先判断 `CanSet` 为真——这两点在前面「值语义与指针语义」一节已经打过基础。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\n// describe 演示反射最常用的思路：面对 interface{} 先看动态类型，再按类型取值处理。\n// 真实的 reflect 也是先 TypeOf/ValueOf 得到类型与值，再按 Kind 分支。\nfunc describe(v interface{}) string {\n\tswitch x := v.(type) {\n\tcase int:\n\t\treturn \"整数 \" + strconv.Itoa(x*2)\n\tcase string:\n\t\treturn \"字符串 \" + strings.ToUpper(x)\n\tcase bool:\n\t\treturn \"布尔 \" + strconv.FormatBool(x)\n\tdefault:\n\t\treturn fmt.Sprintf(\"未知类型 %v\", x)\n\t}\n}\n\nfunc main() {\n\tfmt.Println(describe(21))\n\tfmt.Println(describe(\"go\"))\n\tfmt.Println(describe(true))\n\tfmt.Println(describe(3.14))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\n// describe 现在把所有类型都走成同一个分支。\nfunc describe(v interface{}) string {\n\t// TODO: 用类型分支分别处理：int 输出它的两倍，string 输出大写，\n\t// bool 输出 true/false，其余输出\"未知类型 v\"。\n\treturn fmt.Sprintf(\"值 %v\", v)\n}\n\nfunc main() {\n\t_ = strconv.Itoa\n\t_ = strings.ToUpper\n\tfmt.Println(describe(21))\n\tfmt.Println(describe(\"go\"))\n\tfmt.Println(describe(true))\n\tfmt.Println(describe(3.14))\n}\n",
+      "task": "这一节是替代练习：reflect 在练习环境里无法 import，我们用类型断言与 type switch 近似它「先看动态类型、再分支处理」的思路。starter 的 `describe` 对所有类型都走同一个格式，请按下面的规则补上类型分支：int 输出「整数」加两倍值、string 输出「字符串」加大写、bool 输出「布尔」加 true/false、其余输出「未知类型」加原值。最终输出：\n\n```\n整数 42\n字符串 GO\n布尔 true\n未知类型 3.14\n```",
+      "expectedOutput": "整数 42\n字符串 GO\n布尔 true\n未知类型 3.14",
+      "hints": [
+        "写法是 `switch x := v.(type)`，每个 `case` 里 x 会自动变成对应的具体类型（case int 里 x 就是 int）。",
+        "各分支的转换工具：int 用 `strconv.Itoa(x*2)`，string 用 `strings.ToUpper(x)`，bool 用 `strconv.FormatBool(x)`。",
+        "`default` 分支用 `fmt.Sprintf` 输出「未知类型」加原值，负责 3.14 这类情况。"
+      ],
+      "quiz": {
+        "question": "关于反射，下面哪种说法正确？",
+        "options": [
+          "反射在编译期就能确定类型，所以性能比直接调用更好",
+          "reflect.ValueOf(x) 拿到的是值的拷贝，想修改要先传指针、再用 Elem 并确认 CanSet",
+          "类型断言 v.(int) 在类型不符时返回零值，不会 panic",
+          "反射可以完全替代接口，任何代码都该用反射写"
+        ],
+        "answer": 1,
+        "explanation": "反射在运行期查类型表、做断言，比直接调用慢；ValueOf 得到的是拷贝，修改必须通过指针取到可寻址、可设置（CanSet 为真）的值。类型断言失败会 panic，安全写法是 x, ok := v.(int) 或 type switch。"
+      },
+      "takeaways": [
+        "反射在运行期获取类型与值信息，是序列化、ORM 等框架的基础。",
+        "反射绕开了编译期优化，比直接调用慢，不要滥用。",
+        "只有通过指针取得的 reflect.Value 才可能 CanSet 为真，修改前必须判断。",
+        "type switch 是「按动态类型分支」的轻量做法，也是本节的近似手段。"
+      ]
+    }
+  ]
+}

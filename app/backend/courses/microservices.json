@@ -1,0 +1,183 @@
+{
+  "order": 8,
+  "course": {
+    "id": "microservices",
+    "title": "Go 开发实战 · 微服务",
+    "description": "对照 go-practice/go-microservices.md：服务注册、网关路由、幂等与事件驱动，用可运行模型理解架构。",
+    "level": "实战",
+    "duration": "约 55 分钟",
+    "accent": "#604fcd"
+  },
+  "lessons": [
+    {
+      "id": "service-split",
+      "title": "服务边界与拆分",
+      "description": "把单体里挤在一起的职责拆成独立服务模型，再让编排逻辑复用它们。",
+      "duration": 10,
+      "source": "go-practice/go-microservices.md · 第一章 微服务架构总览",
+      "concept": "微服务（microservices）是一种架构风格：把单个应用拆成一组小型、独立部署的服务，每个服务围绕一项业务能力构建，拥有自己的数据存储，通过轻量协议通信。收益是独立部署、独立扩容、故障隔离；代价是分布式复杂度，服务发现、分布式事务、链路追踪都要自己解决。\n\n服务边界怎么划是最关键的一步，常用方法是领域驱动设计（DDD）的限界上下文：同一个业务概念在不同上下文里含义不同。比如「商品」在商品上下文里有标题、库存、价格，在订单上下文里只是下单时刻的快照，所以订单服务不该直接查商品库。\n\n> ⚠️ **常见坑**：一步到位拆太细，或者拆完还共享数据库，变成「分布式单体」（服务是拆开了，但每次改动要同时发布好几个）。绝大多数团队应该先做模块化单体，遇到独立扩容或协作瓶颈再拆。\n\n> 💡 **技巧**：示例里每个函数代表一个服务模型，只碰自己的数据，订单函数只做编排；真实实现是独立进程 + 独立数据库，见原文第一章。",
+      "example": "package main\n\nimport \"fmt\"\n\n// 按业务能力拆分：每个函数像一个独立服务，只管自己的数据。\nfunc userService(id int) string {\n\treturn map[int]string{7: \"张三\", 8: \"李四\"}[id]\n}\n\nfunc stockService(sku string, qty int) int {\n\treturn map[string]int{\"A-1\": 3, \"B-2\": 0}[sku] - qty\n}\n\n// orderService 只做编排：用户、库存都不是它的数据，只能问对应服务。\nfunc orderService(id int, sku string, qty int) string {\n\tuser := userService(id)\n\tif user == \"\" {\n\t\treturn \"用户无效\"\n\t}\n\tif left := stockService(sku, qty); left < 0 {\n\t\treturn \"库存不足\"\n\t}\n\treturn fmt.Sprintf(\"%s 下单 %s x%d 成功\", user, sku, qty)\n}\n\nfunc main() {\n\tfmt.Println(orderService(7, \"A-1\", 2))\n\tfmt.Println(orderService(7, \"B-2\", 1))\n\tfmt.Println(orderService(9, \"A-1\", 1))\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// 单体写法：用户、库存、订单逻辑全挤在 main 里，只覆盖了顺利路径。\nfunc main() {\n\tusers := map[int]string{7: \"张三\", 8: \"李四\"}\n\tstocks := map[string]int{\"A-1\": 3, \"B-2\": 0}\n\tuser := users[7]\n\tif user == \"\" {\n\t\tfmt.Println(\"用户无效\")\n\t\treturn\n\t}\n\tif stocks[\"A-1\"]-2 >= 0 {\n\t\tfmt.Println(user, \"下单 A-1 x2 成功\")\n\t}\n\tfmt.Println(\"库存不足\") // 第二笔写死，没有真的走库存判断\n\tfmt.Println(users[9], \"下单 A-1 x1 成功\") // 用户 9 不存在却打印成功\n}",
+      "task": "现在所有逻辑都挤在 `main` 里，只覆盖了顺利路径。请按职责拆成三个函数：`userService` 只查用户、`stockService` 只查库存、`orderService` 只做编排，然后让三笔订单走同一套逻辑。输出：\n\n```\n张三 下单 A-1 x2 成功\n库存不足\n用户无效\n```",
+      "expectedOutput": "张三 下单 A-1 x2 成功\n库存不足\n用户无效",
+      "hints": [
+        "`userService(id int) string` 返回用户名，查不到返回空字符串；`stockService(sku string, qty int) int` 返回扣减后的剩余库存。",
+        "`orderService` 先看用户名是否为空，再看剩余库存是否小于 0，最后才拼成功信息。",
+        "三笔订单分别是 `(7, \"A-1\", 2)`、`(7, \"B-2\", 1)`、`(9, \"A-1\", 1)`，输出依次是成功、库存不足、用户无效。"
+      ],
+      "quiz": {
+        "question": "关于微服务的拆分，下面哪种说法是正确的？",
+        "options": [
+          "拆得越细越好，服务数量越多越微服务",
+          "服务之间应该共享同一个数据库，方便联表查询",
+          "先做模块化单体，遇到独立扩容或协作瓶颈再按业务能力拆",
+          "拆成多个服务之后就不再需要团队协作了"
+        ],
+        "answer": 2,
+        "explanation": "微服务成本很高，应该先模块化单体、按瓶颈逐步拆；共享数据库和过细拆分都会制造「分布式单体」。"
+      },
+      "takeaways": [
+        "微服务 = 业务能力 + 独立数据 + 独立部署，不是拆得越多越好。",
+        "边界用 DDD 限界上下文划分，订单里保存的是下单时刻的商品快照。",
+        "先模块化单体，遇到独立扩容或协作瓶颈再拆。",
+        "警惕分布式单体：服务拆了，数据库和发布节奏却还绑在一起。"
+      ]
+    },
+    {
+      "id": "registry-discovery",
+      "title": "服务注册与发现",
+      "description": "用映射表模拟注册中心，按服务名查可用实例而不是硬编码地址。",
+      "duration": 10,
+      "source": "go-practice/go-microservices.md · 第三章 服务注册与发现",
+      "concept": "服务实例的地址是动态的：容器重建会换 IP，扩缩容会改变实例数量，所以调用方不能硬编码地址。服务注册与发现（service registry & discovery）解决的就是这个问题：实例启动时把「服务名 → 地址」写入注册中心（etcd、Consul、Nacos 等），调用方按服务名查询可用实例列表，再从中选一个发起调用。\n\n发现方式分两种：客户端发现（调用方自己查列表并做负载均衡）和服务端发现（由网关或平台代查，调用方只面对一个入口）。注册中心还负责健康检查：实例下线或心跳超时后从列表里摘除，避免流量打到死实例。\n\n> ⚠️ **常见坑**：把实例列表缓存在本地却从不刷新，实例下线后调用方还在往旧地址发请求；注册中心通常要求强一致（CP），拿到已下线的实例比拿不到更糟。\n\n> 💡 **技巧**：示例用「服务名 → 地址切片」的映射表模拟注册表，真实实现由 etcd 等组件提供，见原文第三章。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// registry 模拟注册中心：服务名 → 实例地址列表，实例会动态上下线。\ntype registry struct {\n\tservices map[string][]string\n}\n\n// register 追加一个实例地址；同一个服务可以有多个副本。\nfunc (r *registry) register(name, addr string) {\n\tr.services[name] = append(r.services[name], addr)\n}\n\n// discover 按服务名查可用实例，调用方不再硬编码地址。\nfunc (r *registry) discover(name string) string {\n\tinstances := r.services[name]\n\tif len(instances) == 0 {\n\t\treturn \"未找到 \" + name + \" 的实例\"\n\t}\n\treturn name + \" 可用实例: \" + strings.Join(instances, \",\")\n}\n\nfunc main() {\n\tr := &registry{services: map[string][]string{}}\n\tr.register(\"order\", \"10.0.0.1:8080\")\n\tr.register(\"order\", \"10.0.0.2:8080\")\n\tr.register(\"user\", \"10.0.0.3:8080\")\n\tfmt.Println(r.discover(\"order\"))\n\tfmt.Println(r.discover(\"user\"))\n\tfmt.Println(r.discover(\"pay\"))\n}",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// registry 模拟注册中心：服务名 → 实例地址列表，实例会动态上下线。\ntype registry struct {\n\tservices map[string][]string\n}\n\n// register 追加一个实例地址；同一个服务可以有多个副本。\nfunc (r *registry) register(name, addr string) {\n\tr.services[name] = append(r.services[name], addr)\n}\n\n// discover 按服务名查可用实例，调用方不再硬编码地址。\nfunc (r *registry) discover(name string) string {\n\tinstances := r.services[name]\n\tif len(instances) == 0 {\n\t\treturn \"未找到 \" + name + \" 的实例\"\n\t}\n\treturn name + \" 可用实例: \" + strings.Join(instances, \",\")\n}\n\nfunc main() {\n\tr := &registry{services: map[string][]string{}}\n\t// 只注册并查询了 order 的第一个实例。\n\tr.register(\"order\", \"10.0.0.1:8080\")\n\tfmt.Println(r.discover(\"order\"))\n}",
+      "task": "注册表里只注册、查询了 order 的第一个实例。请再注册 order 的第二个实例 `10.0.0.2:8080` 和 user 的 `10.0.0.3:8080`，并依次查询 order、user，最后查一个不存在的 pay。输出：\n\n```\norder 可用实例: 10.0.0.1:8080,10.0.0.2:8080\nuser 可用实例: 10.0.0.3:8080\n未找到 pay 的实例\n```",
+      "expectedOutput": "order 可用实例: 10.0.0.1:8080,10.0.0.2:8080\nuser 可用实例: 10.0.0.3:8080\n未找到 pay 的实例",
+      "hints": [
+        "`register` 会往同一个服务名下 append 地址，对 order 调用两次就有两个实例。",
+        "查询用 `r.discover(\"user\")`；服务名不存在时，discover 会返回「未找到 xxx 的实例」。",
+        "输出的实例顺序就是注册顺序，因为 discover 读的是切片，没有遍历 map。"
+      ],
+      "quiz": {
+        "question": "为什么调用方不应该硬编码服务实例的地址？",
+        "options": [
+          "地址字符串太长，影响可读性",
+          "实例会因重建、扩缩容频繁变化，硬编码的地址必然失效",
+          "硬编码地址会让编译速度变慢",
+          "注册中心不允许出现 IP 地址"
+        ],
+        "answer": 1,
+        "explanation": "实例地址是动态的，服务名才是稳定标识；通过注册中心按名查询才能跟上实例的上线与下线。"
+      },
+      "takeaways": [
+        "实例地址是动态的，硬编码地址迟早失效。",
+        "注册中心维护「服务名 → 实例列表」，靠健康检查摘除死实例。",
+        "客户端发现性能好但每种语言都要实现，服务端发现简单但多一跳。",
+        "完整流程：启动注册、定时心跳、下线注销、调用方按名查询。"
+      ]
+    },
+    {
+      "id": "api-gateway",
+      "title": "API 网关与路由",
+      "description": "按路径前缀把请求路由到不同服务，并处理 404 兜底。",
+      "duration": 10,
+      "source": "go-practice/go-microservices.md · 第五章 API 网关",
+      "concept": "API 网关（API gateway）是外部流量的唯一入口。客户端只访问网关，由网关把请求路由到内部服务，这样鉴权、限流、日志、灰度、协议转换这些横切关注点只需要在入口实现一次，后端服务不用各写一遍。\n\n路由是网关最核心的职责：一般按路径前缀匹配，比如 `/api/orders/**` 转给订单服务、`/api/users/**` 转给用户服务，没有命中任何路由的请求返回 404。Go 自研网关的本质就是「反向代理 + 中间件链」，上一门课的中间件链正好在这里复用。\n\n> ⚠️ **常见坑**：前缀匹配的顺序问题——如果先注册了泛前缀 `/api`，它会吞掉所有 `/api/orders` 的请求；要么按最长前缀优先，要么把具体路由放在前面。\n\n> 💡 **技巧**：网关自身不能成为单点，生产上要部署多副本并做健康检查；BFF（Backend For Frontend）再按端做聚合，减少客户端的请求次数。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\n// service 是一条路由信息：网关按前缀把请求转发给对应服务。\ntype service struct {\n\tname string\n\tpath string\n}\n\n// gateway 是流量的唯一入口：先匹配路由，都不命中就返回 404。\ntype gateway struct {\n\troutes []service\n}\n\nfunc (g *gateway) handle(path string) string {\n\tfor _, s := range g.routes {\n\t\tif strings.HasPrefix(path, s.path) { // 前缀匹配才能带上子路径\n\t\t\treturn s.name + \" 处理 \" + path\n\t\t}\n\t}\n\treturn \"404 \" + path + \" 无匹配路由\"\n}\n\nfunc main() {\n\tg := &gateway{routes: []service{{\"订单服务\", \"/api/orders\"}, {\"用户服务\", \"/api/users\"}}}\n\tfmt.Println(g.handle(\"/api/orders/1001\"))\n\tfmt.Println(g.handle(\"/api/users/7\"))\n\tfmt.Println(g.handle(\"/api/pay/1\"))\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// service 是一条路由信息：网关按前缀把请求转发给对应服务。\ntype service struct {\n\tname string\n\tpath string\n}\n\n// gateway 是流量的唯一入口：先匹配路由，都不命中就返回 404。\ntype gateway struct {\n\troutes []service\n}\n\nfunc (g *gateway) handle(path string) string {\n\tfor _, s := range g.routes {\n\t\tif path == s.path { // 只匹配完全相等，子路径全都落到 404\n\t\t\treturn s.name + \" 处理 \" + path\n\t\t}\n\t}\n\treturn \"404 \" + path + \" 无匹配路由\"\n}\n\nfunc main() {\n\tg := &gateway{routes: []service{{\"订单服务\", \"/api/orders\"}, {\"用户服务\", \"/api/users\"}}}\n\tfmt.Println(g.handle(\"/api/orders/1001\"))\n\tfmt.Println(g.handle(\"/api/users/7\"))\n\tfmt.Println(g.handle(\"/api/pay/1\"))\n}",
+      "task": "`handle` 现在用 `path == s.path` 做完全相等比较，请求子路径时全部落到 404。请改成前缀匹配（用 `strings.HasPrefix`，记得在 import 块里补上 `strings`），让 `/api/orders/1001`、`/api/users/7` 路由到对应服务。输出：\n\n```\n订单服务 处理 /api/orders/1001\n用户服务 处理 /api/users/7\n404 /api/pay/1 无匹配路由\n```",
+      "expectedOutput": "订单服务 处理 /api/orders/1001\n用户服务 处理 /api/users/7\n404 /api/pay/1 无匹配路由",
+      "hints": [
+        "把 `if path == s.path` 换成 `if strings.HasPrefix(path, s.path)`，并在 import 里加上 strings。",
+        "路由按注册顺序遍历：`/api/orders/1001` 会先命中「订单服务」，`/api/users/7` 命中「用户服务」。",
+        "没有任何前缀命中时才走最后的 404 分支，`/api/pay/1` 就是这种情况。"
+      ],
+      "quiz": {
+        "question": "把 API 网关放在所有服务前面的主要好处是什么？",
+        "options": [
+          "让每个后端服务都必须再实现一遍鉴权和限流",
+          "把鉴权、限流、路由、日志等横切逻辑统一收在入口处理一次",
+          "可以替代注册中心完成服务发现",
+          "让后端服务之间可以直接互相调用，不再需要协议"
+        ],
+        "answer": 1,
+        "explanation": "网关是统一入口，横切关注点在入口实现一次即可，后端服务专注业务；网关本身也要避免成为单点。"
+      },
+      "takeaways": [
+        "网关是流量的唯一入口，横切逻辑只在入口实现一次。",
+        "路由按路径前缀分发，注意前缀顺序和 404 兜底。",
+        "Go 自研网关 = 反向代理 + 中间件链。",
+        "网关要避免单点，BFF 按端聚合以降低客户端请求次数。"
+      ]
+    },
+    {
+      "id": "idempotency",
+      "title": "幂等与一致性",
+      "description": "用已处理集合实现幂等下单，让重复请求返回同一个结果。",
+      "duration": 12,
+      "source": "go-practice/go-microservices.md · 第七章 分布式事务与一致性",
+      "concept": "幂等（多次执行结果一致）指同一个操作执行一次和执行多次，对系统的影响相同。分布式系统里重复几乎不可避免：用户连点、网络重发、超时后上游重试、消息队列至少一次投递，都可能让同一个请求到达两次，所以任何可能重复的写操作都要做幂等。\n\n实现手段有几类：唯一键约束（数据库唯一索引，重复插入直接失败）、状态机（只允许待支付→已支付，重复回调因状态不符被拒）、去重表或已处理集合（Redis SETNX、本课用的映射表），以及给每个请求带一个幂等键（idempotency key，由业务方生成并全链路透传）。\n\n> ⚠️ **常见坑**：「先查后写」在并发下仍有窗口：两个请求同时查到「没处理过」，于是都创建了订单。真实实现要用唯一索引或 SETNX 这类原子操作兜底，而不能只靠一次查询。\n\n> 💡 **技巧**：示例用「已处理集合」把幂等键映射到首次创建的订单号，重复请求直接返回原结果；这也是分布式一致性的地基，真实数据库实现见原文第七章。",
+      "example": "package main\n\nimport \"fmt\"\n\n// orderAPI 用「已处理集合」实现幂等：同一个幂等键只创建一次订单。\ntype orderAPI struct {\n\tprocessed map[string]string // 幂等键 → 首次创建的订单号\n\tseq       int\n}\n\n// create 返回处理结果；重复请求直接返回原订单，不会重复下单。\nfunc (a *orderAPI) create(key string) string {\n\tif orderID, ok := a.processed[key]; ok {\n\t\treturn \"重复请求 \" + key + \" 返回已有订单 \" + orderID\n\t}\n\ta.seq++\n\torderID := \"order-\" + fmt.Sprint(a.seq)\n\ta.processed[key] = orderID\n\treturn \"创建订单 \" + orderID + \" 幂等键 \" + key\n}\n\nfunc main() {\n\ta := &orderAPI{processed: map[string]string{}}\n\tfmt.Println(a.create(\"key-1001\"))\n\tfmt.Println(a.create(\"key-1001\")) // 重试、网络重发带来的重复请求\n\tfmt.Println(a.create(\"key-1002\"))\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\n// orderAPI 用「已处理集合」实现幂等：同一个幂等键只创建一次订单。\ntype orderAPI struct {\n\tprocessed map[string]string // 幂等键 → 首次创建的订单号\n\tseq       int\n}\n\n// create 返回处理结果；重复请求直接返回原订单，不会重复下单。\nfunc (a *orderAPI) create(key string) string {\n\t// 少了查已处理集合这一步：重复的幂等键会重复创建订单。\n\ta.seq++\n\torderID := \"order-\" + fmt.Sprint(a.seq)\n\ta.processed[key] = orderID\n\treturn \"创建订单 \" + orderID + \" 幂等键 \" + key\n}\n\nfunc main() {\n\ta := &orderAPI{processed: map[string]string{}}\n\tfmt.Println(a.create(\"key-1001\"))\n\tfmt.Println(a.create(\"key-1001\")) // 重试、网络重发带来的重复请求\n\tfmt.Println(a.create(\"key-1002\"))\n}",
+      "task": "`create` 没有查已处理集合，重复的幂等键会重复创建订单。请在函数开头补上判断：幂等键已经出现过就返回 `重复请求 <key> 返回已有订单 <orderID>`，不再创建新订单。输出：\n\n```\n创建订单 order-1 幂等键 key-1001\n重复请求 key-1001 返回已有订单 order-1\n创建订单 order-2 幂等键 key-1002\n```",
+      "expectedOutput": "创建订单 order-1 幂等键 key-1001\n重复请求 key-1001 返回已有订单 order-1\n创建订单 order-2 幂等键 key-1002",
+      "hints": [
+        "先用 `if orderID, ok := a.processed[key]; ok { ... }` 判断这个 key 是否处理过。",
+        "命中时直接返回「重复请求 key-1001 返回已有订单 order-1」，不要执行 `a.seq++`。",
+        "key-1002 是第一次出现，仍然要正常创建并得到 order-2。"
+      ],
+      "quiz": {
+        "question": "下面哪种场景最需要幂等设计？",
+        "options": [
+          "查询用户资料",
+          "计算订单总价",
+          "支付回调、创建订单这类可能被重复触发的写操作",
+          "打印访问日志"
+        ],
+        "answer": 2,
+        "explanation": "读操作天然幂等；写操作重复执行会产生重复扣款、重复下单等真实影响，必须用幂等键、唯一约束等机制保护。"
+      },
+      "takeaways": [
+        "幂等 = 执行一次和执行多次，对系统的影响相同。",
+        "重复来源：用户重试、网络重发、超时重试、消息至少一次投递。",
+        "常用手段：唯一键约束、状态机、已处理集合（SETNX）、幂等键透传。",
+        "「先查后写」存在并发窗口，真实实现要用原子操作兜底。"
+      ]
+    },
+    {
+      "id": "event-driven",
+      "title": "事件驱动与消息队列",
+      "description": "用 channel 模拟生产者、扇出队列与消费者，按事件顺序输出处理结果。",
+      "duration": 12,
+      "source": "go-practice/go-microservices.md · 第九章 消息驱动与事件架构",
+      "concept": "事件驱动（event-driven）把服务间的「命令式调用」换成「发布事件」：订单服务发布 `OrderCreated`，库存、积分、通知服务各自订阅并处理。生产者不需要知道有哪些消费者，新增消费者也不用改生产者，耦合度大幅降低；代价是最终一致性——事件投递有延迟，失败要靠重试和补偿，链路排障要依赖追踪手段。\n\n消息队列（message queue）是事件驱动的基础设施（Kafka、RocketMQ 等），它提供两个关键保证：每个消费者组都能收到全量事件（扇出），以及每个队列内部的事件按发布顺序投递。示例用带缓冲的 channel 模拟这两点：每个消费者一条队列，收齐后按事件顺序打印。\n\n> ⚠️ **常见坑**：在消费者里直接打印（或写库、发消息），并发下输出顺序不确定；正确做法是先收齐、再按事件序号输出，本例展示了这个模式。另外消息队列是「至少一次投递」，消费端必须幂等（上一节刚练过）。\n\n> 💡 **技巧**：Kafka 这类组件无法在练习环境运行，这里用 goroutine + channel 做同构模型；真实的接入方式见原文第九章。",
+      "example": "package main\n\nimport \"fmt\"\n\n// collect 模拟一个消费者：从自己的队列顺序取事件，收齐后交回结果。\nfunc collect(service string, in <-chan string, done chan<- []string) {\n\tlogs := make([]string, 0, 3)\n\tfor e := range in {\n\t\tlogs = append(logs, service+\" 处理 \"+e)\n\t}\n\tdone <- logs\n}\n\nfunc main() {\n\tstock, points := make(chan string, 3), make(chan string, 3)\n\tgo func() { // 生产者：每个事件都投递给两个消费者队列\n\t\tfor _, e := range []string{\"OrderCreated 1001\", \"OrderCreated 1002\", \"OrderCreated 1003\"} {\n\t\t\tstock <- e\n\t\t\tpoints <- e\n\t\t}\n\t\tclose(stock)\n\t\tclose(points)\n\t}()\n\tstockDone, pointsDone := make(chan []string), make(chan []string)\n\tgo collect(\"库存服务\", stock, stockDone)\n\tgo collect(\"积分服务\", points, pointsDone)\n\tstockLogs, pointsLogs := <-stockDone, <-pointsDone // 先收齐再打印，输出才确定\n\tfor i := range stockLogs { // 按事件顺序交错输出\n\t\tfmt.Println(stockLogs[i])\n\t\tfmt.Println(pointsLogs[i])\n\t}\n}",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\t// 只有一个消费者：积分服务收不到任何事件。\n\tqueue := make(chan string, 3)\n\tfor _, e := range []string{\"OrderCreated 1001\", \"OrderCreated 1002\", \"OrderCreated 1003\"} {\n\t\tqueue <- e\n\t}\n\tclose(queue)\n\tfor e := range queue {\n\t\tfmt.Println(\"库存服务 处理\", e)\n\t}\n}",
+      "task": "现在只有一个消费者，积分服务收不到任何事件。请让两个消费者都消费同一批事件，并按事件顺序交错输出：每个消费者一条自己的队列（生产者把事件扇出过去），用 goroutine 收集结果并通过 channel 交回 main，先收齐再打印。输出：\n\n```\n库存服务 处理 OrderCreated 1001\n积分服务 处理 OrderCreated 1001\n库存服务 处理 OrderCreated 1002\n积分服务 处理 OrderCreated 1002\n库存服务 处理 OrderCreated 1003\n积分服务 处理 OrderCreated 1003\n```",
+      "expectedOutput": "库存服务 处理 OrderCreated 1001\n积分服务 处理 OrderCreated 1001\n库存服务 处理 OrderCreated 1002\n积分服务 处理 OrderCreated 1002\n库存服务 处理 OrderCreated 1003\n积分服务 处理 OrderCreated 1003",
+      "hints": [
+        "一个 channel 的事件只能被消费一次；要扇出，每个消费者需要一条自己的队列。",
+        "生产者在 goroutine 里把每个事件分别写入 stock 和 points 两条队列，消费者各自收集后通过 done channel 交回。",
+        "main 里先收齐两个消费者的结果，再按事件序号交错打印，输出顺序才确定。"
+      ],
+      "quiz": {
+        "question": "事件驱动架构的主要代价是什么？",
+        "options": [
+          "生产者和消费者必须互相知道对方的地址",
+          "新增消费者时必须修改生产者代码",
+          "系统变成最终一致，链路更难追踪，需要幂等消费和追踪手段",
+          "完全无法使用消息队列"
+        ],
+        "answer": 2,
+        "explanation": "事件驱动换来了解耦，代价是最终一致：事件有延迟、失败要重试补偿，消费端要幂等，排障要靠 trace。"
+      },
+      "takeaways": [
+        "事件驱动把命令式调用换成发布/订阅，生产者与消费者解耦。",
+        "新增消费者只需订阅事件，不必修改生产者（开放-封闭）。",
+        "代价是最终一致：链路难追踪、消费端必须幂等。",
+        "并发下先收齐结果再按序输出，避免输出顺序不确定。"
+      ]
+    }
+  ]
+}

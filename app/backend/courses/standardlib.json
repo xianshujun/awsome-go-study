@@ -1,0 +1,179 @@
+{
+  "order": 4,
+  "course": {
+    "id": "standardlib",
+    "title": "Go 语言进阶 · 标准库",
+    "description": "对照 go-advance/go-standardlib.md：把 fmt、strings、strconv、math 用到顺手。",
+    "level": "进阶",
+    "duration": "约 50 分钟",
+    "accent": "#f69605"
+  },
+  "lessons": [
+    {
+      "id": "fmt-format",
+      "title": "格式化输出与占位符",
+      "description": "搞清 Printf 常用占位符与宽度对齐，用 Sprintf 拼出整齐的报告。",
+      "duration": 10,
+      "source": "go-advance/go-standardlib.md · 第一章 输入输出",
+      "concept": "Go 的输出函数有四兄弟：`fmt.Println` 用空格分隔参数并自动换行，最适合快速调试；`fmt.Printf` 按占位符拼字符串但**不会自动换行**，要自己写 `\\n`；`fmt.Sprintf` 和 Printf 的格式化规则一样，但它不打印、只把拼好的字符串返回，适合「先拼好、再统一输出或保存」。\n\n常用占位符记住这几个就够日常使用：`%s` 字符串、`%d` 整数、`%t` 布尔、`%v` 默认格式、`%q` 带引号的字符串；浮点用 `%f`，`%.2f` 表示保留两位小数。占位符里还能写宽度和对齐：`%-6s` 表示左对齐、占满 6 列（不够的补空格），`%7.2f` 表示右对齐、总宽 7 列、保留两位小数——打印成绩单、金额表时非常好用。\n\n> ⚠️ **常见坑**：占位符和参数类型不匹配时程序不会报错，而是把 `%!d(float64=39.5)` 这种标记打进输出里，所以要养成「占位符与类型对照」的习惯。另外 Println 会自动在参数之间加空格和换行，别再手动补。\n\n> 💡 **技巧**：把对齐规则当成模板只写在 `Sprintf` 里维护一处，比每次手写空格更稳；本练习环境开放的是 Print/Println/Printf/Sprint/Sprintln/Sprintf/Errorf，`Fprintf` 和 `Scan` 系列不可用。",
+      "example": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tname := \"Go\"\n\tprice := 39.5\n\tcount := 3\n\n\t// Printf 按占位符输出，\\n 要自己写；Sprintf 只返回拼好的字符串。\n\tfmt.Printf(\"课程: %s\\n\", name)\n\tfmt.Printf(\"单价: %.2f 元，数量: %d\\n\", price, count)\n\t// %-6s 左对齐占 6 列，%7.2f 右对齐占 7 列并保留两位小数。\n\tline := fmt.Sprintf(\"%-6s 合计 %7.2f 元\", name, price*float64(count))\n\tfmt.Println(line)\n\tfmt.Println(\"布尔占位符:\", fmt.Sprintf(\"%t\", true))\n}\n",
+      "starter": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tname := \"Go\"\n\tprice := 39.5\n\tcount := 3\n\n\tfmt.Printf(\"课程: %s\\n\", name)\n\t// TODO: 单价格式化成两位小数。\n\tfmt.Printf(\"单价: %v 元，数量: %d\\n\", price, count)\n\t// TODO: 名称左对齐占 6 列、金额右对齐占 7 列并保留两位小数。\n\tline := fmt.Sprintf(\"%s 合计 %v 元\", name, price*float64(count))\n\tfmt.Println(line)\n\tfmt.Println(\"布尔占位符:\", fmt.Sprintf(\"%t\", true))\n}\n",
+      "task": "starter 有两处偷懒：单价用了 `%v`，所以只打印 `39.5`；合计行没有宽度和精度控制，输出是 `Go 合计 118.5 元`。请把单价改成保留两位小数，并让合计行按「名称左对齐 6 列、金额右对齐 7 列且保留两位小数」排版，最终输出：\n\n```\n课程: Go\n单价: 39.50 元，数量: 3\nGo     合计  118.50 元\n布尔占位符: true\n```",
+      "expectedOutput": "课程: Go\n单价: 39.50 元，数量: 3\nGo     合计  118.50 元\n布尔占位符: true",
+      "hints": [
+        "单价保留两位小数用 `%.2f`；`%v` 会输出 39.5 这种最短形式。",
+        "合计行的排版规则：`%-6s` 让名称左对齐占 6 列，`%7.2f` 让金额右对齐占 7 列、保留两位小数。",
+        "注意格式串里「合计」和「元」前后的空格要保留，否则对齐会差一格；金额是 `price*float64(count)`。"
+      ],
+      "quiz": {
+        "question": "想让 3.14159 输出成 `3.14`，应该用哪个占位符？",
+        "options": [
+          "%d",
+          "%.2f",
+          "%t",
+          "%q"
+        ],
+        "answer": 1,
+        "explanation": "%.2f 表示按浮点数输出并保留两位小数；%d 用于整数，%t 用于布尔，%q 用于带引号的字符串。占位符与类型不匹配时不会报错，而是打印出 %!d(...) 之类的提示。"
+      },
+      "takeaways": [
+        "Println 方便调试，Printf 负责格式化，Sprintf 只返回字符串。",
+        "%s、%d、%t、%.2f、%v 覆盖大多数日常输出场景。",
+        "宽度与精度可以写进占位符，做对齐的表格很方便。"
+      ]
+    },
+    {
+      "id": "strings-ops",
+      "title": "strings 常用函数：查找、切分、替换",
+      "description": "字符串不可变，所有操作都返回新串；用 Split、TrimSpace、Join 做批量清洗。",
+      "duration": 10,
+      "source": "go-advance/go-standardlib.md · 第二章 字符串处理 · 2.1 strings包",
+      "concept": "Go 的 `string` 是**不可变的只读字节序列**——可以把它想成刻好的石碑，内容一个字也改不了。`ToLower`、`ReplaceAll`、`TrimSpace` 这些函数都不是「原地修改」，而是刻一块新石碑返回，原串纹丝不动；所以必须接住返回值：`s = strings.ToUpper(s)` 的意思是「把新串重新赋值给 s」，不是「把 s 改了」。\n\n日常函数分三组记：判断与查找用 `Contains`（是否包含）、`HasPrefix`/`HasSuffix`（前缀/后缀）、`Count`（出现次数）；拆分与合并用 `Split`（按分隔符切成分片）和 `Join`（用分隔符拼回去）；清洗与变形用 `TrimSpace`（去掉首尾空白）、`ToUpper`/`ToLower`（大小写转换）、`ReplaceAll`（全部替换）。批量清洗有个固定套路：Split 切开 → 逐个 TrimSpace 和 ToLower → 用 Join 拼回来。\n\n> ⚠️ **常见坑**：strings 是按**字节**定位的，而中文一个字通常占 3 个字节，用 `s[0]` 这样的下标很容易把汉字切碎；要按「字符」遍历请写 `for _, r := range s`。另外 `TrimSpace` 只去首尾空白，字符串中间的空格它管不了。\n\n> 💡 **技巧**：大段拼接用 `strings.Builder` 比反复用 `+` 快得多（它内部按需扩容，避免每次重刻）；本练习环境没有开放 Builder，知道这个思路、需要时用 `Join` 代替即可。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\nfunc main() {\n\traw := \"  Go, go , 标准库 , Go \"\n\tparts := strings.Split(raw, \",\")\n\tcleaned := make([]string, 0, len(parts))\n\tfor _, part := range parts {\n\t\t// 字符串不可变，ToLower/TrimSpace 都返回新串，必须接住结果。\n\t\titem := strings.ToLower(strings.TrimSpace(part))\n\t\tif item != \"\" {\n\t\t\tcleaned = append(cleaned, item)\n\t\t}\n\t}\n\n\tfmt.Println(\"标签:\", strings.Join(cleaned, \"|\"))\n\tfmt.Println(\"首个标签以 go 开头:\", strings.HasPrefix(cleaned[0], \"go\"))\n\tfmt.Println(\"go 出现的次数:\", strings.Count(strings.Join(cleaned, \",\"), \"go\"))\n\tfmt.Println(\"替换标准库:\", strings.ReplaceAll(strings.Join(cleaned, \",\"), \"标准库\", \"stdlib\"))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\nfunc main() {\n\traw := \"  Go, go , 标准库 , Go \"\n\tparts := strings.Split(raw, \",\")\n\t// TODO: 去掉每个标签首尾空格并统一成小写，空标签不要留下。\n\tcleaned := parts\n\n\tfmt.Println(\"标签:\", strings.Join(cleaned, \"|\"))\n\tfmt.Println(\"首个标签以 go 开头:\", strings.HasPrefix(cleaned[0], \"go\"))\n\tfmt.Println(\"go 出现的次数:\", strings.Count(strings.Join(cleaned, \",\"), \"go\"))\n\tfmt.Println(\"替换标准库:\", strings.ReplaceAll(strings.Join(cleaned, \",\"), \"标准库\", \"stdlib\"))\n}\n",
+      "task": "starter 直接把 Split 的结果当成了清洗后的标签，所以标签里还留着空格和大小写。请补上清洗：每个片段先用 `TrimSpace` 去掉首尾空格、再用 `ToLower` 统一成小写，空片段不要保留。最终输出：\n\n```\n标签: go|go|标准库|go\n首个标签以 go 开头: true\ngo 出现的次数: 3\n替换标准库: go,go,stdlib,go\n```",
+      "expectedOutput": "标签: go|go|标准库|go\n首个标签以 go 开头: true\ngo 出现的次数: 3\n替换标准库: go,go,stdlib,go",
+      "hints": [
+        "对 Split 出来的每个片段，先 `strings.TrimSpace(part)` 去掉首尾空格，再 `strings.ToLower(...)` 统一小写。",
+        "清洗后可能出现空串（只有空格的片段），判断 `item` 非空后再 append 进 `cleaned`。",
+        "Count 是区分大小写的：统一小写后，`go,go,标准库,go` 里 go 正好出现 3 次。"
+      ],
+      "quiz": {
+        "question": "关于 strings 包的操作，下面哪种说法正确？",
+        "options": [
+          "strings.ToUpper(s) 会原地修改 s",
+          "字符串不可变，strings 的函数都返回新字符串，必须接住返回值",
+          "strings.TrimSpace 会去掉字符串中间的空格",
+          "strings.Split 返回的片段已经自动去掉了首尾空格"
+        ],
+        "answer": 1,
+        "explanation": "Go 的字符串不可变，ToUpper、TrimSpace、ReplaceAll 都返回新字符串，忽略返回值等于什么都没做；TrimSpace 只处理首尾空白，Split 只负责切分、不做清洗。"
+      },
+      "takeaways": [
+        "字符串不可变，所有操作都要接住返回值。",
+        "查找判断用 Contains、HasPrefix、HasSuffix、Count。",
+        "批量清洗用 Split + TrimSpace + Join 的组合套路。"
+      ]
+    },
+    {
+      "id": "strconv-convert",
+      "title": "字符串与数字互转、错误处理",
+      "description": "Atoi、Itoa、ParseBool、FormatBool，以及转换失败时的处理方式。",
+      "duration": 10,
+      "source": "go-advance/go-standardlib.md · 第二章 字符串处理 · 2.2 strconv包",
+      "concept": "`strconv` 是「字符串与数字互相转换」的专职工具：`Atoi`（字母 A 代表 ASCII）把字符串转成 `int`，`Itoa` 把 `int` 转回字符串；`ParseBool` 把 \"true\"/\"TRUE\"/\"1\" 这类文本转成布尔值，`FormatBool` 反向输出。和 `fmt.Sscanf` 相比，这些函数目标更明确、少了格式解析的开销，所以转换数字优先用 strconv。\n\n转换函数最大的特点是**失败用第二个返回值表达**，而不是崩溃：`strconv.Atoi(\"abc\")` 返回 `0` 和一个非 nil 的 error。这不是设计得啰嗦，而是因为外部输入本来就可能是脏数据——用户手输、CSV 里的空格、带单位的文本。Go 的惯例是把「可预期的失败」当成普通返回值处理：调用方先判断 error，再决定跳过、兜底还是报错。（本练习环境只开放了 Atoi/Itoa/ParseBool/FormatBool，`ParseFloat`/`FormatFloat` 是同一套用法。）\n\n> ⚠️ **常见坑**：`strconv.Atoi(\" 42 \")` 会直接报错，因为空格不是合法数字字符，输入来自外部时先 `strings.TrimSpace`。反过来，如果把 Atoi 的错误丢掉，`\"abc\"` 会悄悄变成 0 混进总分，这种「静默错误」比崩溃更难排查。\n\n> 💡 **技巧**：`Itoa`/`FormatBool` 只负责转换，不带格式；需要补零、对齐、加百分号时，再用 `fmt.Printf` 的占位符包一层，职责更清楚。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\nfunc main() {\n\traw := \"90, 85 ,abc,100\"\n\ttotal, valid := 0, 0\n\tfor _, part := range strings.Split(raw, \",\") {\n\t\t// Atoi 不认识空格，先 TrimSpace；转换失败时返回错误而不是崩溃。\n\t\tscore, err := strconv.Atoi(strings.TrimSpace(part))\n\t\tif err != nil {\n\t\t\tfmt.Println(\"跳过无效分数:\", part)\n\t\t\tcontinue\n\t\t}\n\t\ttotal += score\n\t\tvalid++\n\t}\n\tfmt.Println(\"有效个数:\", valid)\n\tfmt.Println(\"总分:\", total)\n\tfmt.Println(\"平均分:\", strconv.Itoa(total/valid))\n\tfmt.Println(\"是否优秀:\", strconv.FormatBool(total/valid >= 90))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\nfunc main() {\n\traw := \"90, 85 ,abc,100\"\n\ttotal, valid := 0, 0\n\tfor _, part := range strings.Split(raw, \",\") {\n\t\t// TODO: 先清理空格，并处理 Atoi 返回的错误，坏数据要跳过。\n\t\tscore, _ := strconv.Atoi(part)\n\t\ttotal += score\n\t\tvalid++\n\t}\n\tfmt.Println(\"有效个数:\", valid)\n\tfmt.Println(\"总分:\", total)\n\tfmt.Println(\"平均分:\", strconv.Itoa(total/valid))\n\tfmt.Println(\"是否优秀:\", strconv.FormatBool(total/valid >= 90))\n}\n",
+      "task": "starter 把 Atoi 的错误丢掉了，也没有清理字段里的空格，所以 ` 85 ` 转换失败后悄悄变成 0，`abc` 也被算成了有效数据。请先 `TrimSpace` 再转换，转换失败时打印 `跳过无效分数: xxx` 并跳过。最终输出：\n\n```\n跳过无效分数: abc\n有效个数: 3\n总分: 275\n平均分: 91\n是否优秀: true\n```",
+      "expectedOutput": "跳过无效分数: abc\n有效个数: 3\n总分: 275\n平均分: 91\n是否优秀: true",
+      "hints": [
+        "先清洗再转换：对每个片段调用 `strings.TrimSpace(part)`，再交给 `strconv.Atoi`。",
+        "把 Atoi 的第二个返回值接住：`score, err := strconv.Atoi(...)`；`err != nil` 时打印「跳过无效分数」并 `continue`。",
+        "跳过 abc 后有效数据是 90、85、100 三个，总分 275，整数除法得到平均分 91；输出顺序是有效个数、总分、平均分、是否优秀。"
+      ],
+      "quiz": {
+        "question": "`strconv.Atoi(\"12abc\")` 的结果是什么？",
+        "options": [
+          "返回 12 和 nil，自动忽略后面的字母",
+          "返回 0 和一个非 nil 的 error",
+          "直接 panic",
+          "返回 -1 和一个非 nil 的 error"
+        ],
+        "answer": 1,
+        "explanation": "Atoi 要求整个字符串都是合法的十进制数字，遇到非数字字符就返回 0 和 error，不会截取前一部分；生产中要把 err 判断出来，否则脏数据会以 0 的形式混入计算。"
+      },
+      "takeaways": [
+        "Atoi/Itoa 负责 int 与字符串互转，ParseBool/FormatBool 负责布尔值。",
+        "转换失败用第二个返回值表达，可预期的错误不要用 panic 处理。",
+        "输入先 TrimSpace，转换后先判错，再参与业务计算。"
+      ]
+    },
+    {
+      "id": "math-numbers",
+      "title": "math 数值计算：取整与比较",
+      "description": "Floor、Ceil、Round 的区别，浮点误差与金额取整，Min/Max 区间夹取。",
+      "duration": 11,
+      "source": "go-advance/go-standardlib.md · 第一章 输入输出 · 1.1 fmt包 + 第二章 字符串处理 · 2.2 strconv包（数值处理延伸）",
+      "concept": "浮点数在计算机里只能存近似值：用变量计算 `0.1 + 0.2` 得到的是 0.30000000000000004，并不等于 0.3；而直接写常量表达式时编译器按精确值计算，反而看起来没问题——变量一参与运算，误差就现形了。金额、分数这类需要比较或落库的数值，通常先四舍五入到最小单位（比如「分」）再比较。顺带一提，时间处理一章的 `time.Duration` 本质是整数纳秒，时长换算靠整除和取余；练习环境不能 `import \"time\"`，这一节用数学运算做同构的替代练习。\n\n取整「三兄弟」要分清方向：`Floor` 向下取整（往数轴左边走，2.9 变 2）、`Ceil` 向上取整（往右走，2.1 变 3）、`Round` 四舍五入到最近整数（2.5 变 3，-2.5 变 -3，也就是远离零）。此外 `Abs` 取绝对值、`Sqrt` 开平方、`Min`/`Max` 取较小/较大值，后两个经常组合起来把数值「夹」进一个区间。\n\n> ⚠️ **常见坑**：`Round` 只能取整到整数位，想保留两位小数要自己「乘 100、Round、再除 100」；对负数和 .5 的边界也要小心，`Round(-2.5)` 是 -3 而不是 -2。\n\n> 💡 **技巧**：能不用浮点就不用——把 3.8 元存成 380 分，累加和比较全程是整数，误差自然消失；确实要输出小数时，只在最后一步转成浮点并用 `%.2f` 格式化。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"math\"\n)\n\nfunc main() {\n\t// 时长换算与 time.Duration 的整数纳秒换算同构：\n\t// 练习环境不能 import time，这一节用数学运算做替代练习。\n\ttotal := 3800\n\tfmt.Println(\"时长:\", total/3600, \"时\", total%3600/60, \"分\", total%60, \"秒\")\n\n\t// 变量参与运算才会暴露浮点误差，先四舍五入到\"分\"再比较。\n\ta, b := 0.1, 0.2\n\tsum := math.Round((a+b)*100) / 100\n\tfmt.Println(\"金额:\", sum, \"等于 0.3:\", sum == 0.3)\n\n\t// Floor 向下取整，Ceil 向上取整，Round 四舍五入到最近整数。\n\tx := 2.4\n\tfmt.Println(\"取整:\", math.Floor(x), math.Ceil(x), math.Round(x))\n\tfmt.Println(\"开方与绝对值:\", math.Sqrt(16), math.Abs(-3.5))\n\tfmt.Println(\"区间夹取:\", math.Max(3, math.Min(7, 10)))\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"math\"\n)\n\nfunc main() {\n\ttotal := 3800\n\tfmt.Println(\"时长:\", total/3600, \"时\", total%3600/60, \"分\", total%60, \"秒\")\n\n\t// TODO: 0.1+0.2 有浮点误差，先四舍五入到\"分\"再比较。\n\ta, b := 0.1, 0.2\n\tsum := (a + b) * 100 / 100\n\tfmt.Println(\"金额:\", sum, \"等于 0.3:\", sum == 0.3)\n\n\tx := 2.4\n\tfmt.Println(\"取整:\", math.Floor(x), math.Ceil(x), math.Round(x))\n\tfmt.Println(\"开方与绝对值:\", math.Sqrt(16), math.Abs(-3.5))\n\t// TODO: 用 Min/Max 把 10 夹取到 [3, 7] 区间内。\n\tfmt.Println(\"区间夹取:\", math.Min(3, 10))\n}\n",
+      "task": "这一节是替代练习：`time` 包在练习环境不可用，我们用整数取整、取余完成与 `time.Duration` 换算同构的数值处理（3800 秒 = 1 时 3 分 20 秒）。starter 有两个问题：金额没有四舍五入到分，直接输出 0.30000000000000004；区间夹取只写了 `Min(3, 10)`，没有用上上界 7。请修好这两处，让输出变成：\n\n```\n时长: 1 时 3 分 20 秒\n金额: 0.3 等于 0.3: true\n取整: 2 3 2\n开方与绝对值: 4 3.5\n区间夹取: 7\n```",
+      "expectedOutput": "时长: 1 时 3 分 20 秒\n金额: 0.3 等于 0.3: true\n取整: 2 3 2\n开方与绝对值: 4 3.5\n区间夹取: 7",
+      "hints": [
+        "金额要保留两位小数，做法是「乘 100 → `math.Round` → 除 100」：`math.Round((a+b)*100) / 100`。",
+        "夹取到 [3,7] 用两次调用：先用 `math.Min(7, 10)` 压到上界之内，再用 `math.Max(3, ...)` 抬到下限以上。",
+        "其余行不用改：Floor(2.4)=2、Ceil(2.4)=3、Round(2.4)=2，Sqrt(16)=4、Abs(-3.5)=3.5。"
+      ],
+      "quiz": {
+        "question": "关于 math 的取整函数，下面哪种说法正确？",
+        "options": [
+          "math.Floor(2.9) 的结果是 3",
+          "math.Round(2.5) 是 3，math.Ceil(2.1) 也是 3",
+          "math.Round 可以直接保留两位小数",
+          "math.Abs 会把正数变成负数"
+        ],
+        "answer": 1,
+        "explanation": "Floor 向下取整，Floor(2.9)=2；Ceil 向上取整，Ceil(2.1)=3；Round 四舍五入到最近整数，Round(2.5)=3。Round 只到整数位，保留两位小数要自己乘 100、Round、再除 100；Abs 取绝对值，正数不变。"
+      },
+      "takeaways": [
+        "变量参与运算会暴露浮点误差，金额比较前先四舍五入到最小单位。",
+        "Floor 向下、Ceil 向上、Round 四舍五入到整数，方向别记反。",
+        "Min/Max 可以组合成区间夹取；能用整数运算就别用浮点。",
+        "时长换算（整除加取余）与 time.Duration 的整数纳秒思路一致。"
+      ]
+    },
+    {
+      "id": "text-pipeline",
+      "title": "综合实战：一行 CSV 清洗与汇总",
+      "description": "把 Split、TrimSpace、Atoi、fmt 串成一条完整的文本处理流水线。",
+      "duration": 14,
+      "source": "go-advance/go-standardlib.md · 第二章 字符串处理 · 2.5 实例：文本分析工具",
+      "concept": "真实的数据处理几乎都是流水线：拆分 → 清洗 → 转换 → 汇总 → 输出。这一节的输入是一行 CSV（逗号分隔的表格文本，这里用分号分隔每条记录），字段里可能夹着空格，也可能整行都是坏数据；输出是有效人数、平均分和最高分。\n\n每一步都有对应的工具：`strings.Split` 负责拆分，`strings.TrimSpace` 负责清洗，`strconv.Atoi` 负责转换并**用 error 汇报坏数据**，最后用 `fmt.Printf`/`fmt.Sprintf` 控制输出格式。原文档的文本分析工具要读文件、还会用正则统计字符；练习环境读不了文件，所以改成对内存里的一行字符串做同样的解析与汇总，属于**替代练习**。\n\n> ⚠️ **常见坑**：对整行 Split 之后不检查字段个数就访问 `fields[1]`，坏行会让程序直接 panic；把 Atoi 的错误丢掉，坏数据会被当成 0 分算进平均分。处理外部文本的正确顺序是：先校验结构，再清洗转换，最后计算。\n\n> 💡 **技巧**：求平均分时先转 `float64` 再相除，配合 `%.1f` 输出，避免整数除法把小数部分直接截掉。",
+      "example": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\n// 每条记录用分号分隔、字段是「姓名,分数」，可能夹带空格或整行是坏数据。\nfunc main() {\n\traw := \"小明,88; 小红 , 95 ;小刚,79;错误行\"\n\ttotal, count, best, bestName := 0, 0, 0, \"\"\n\tfor _, line := range strings.Split(raw, \";\") {\n\t\tline = strings.TrimSpace(line)\n\t\tfields := strings.Split(line, \",\")\n\t\tif len(fields) != 2 { fmt.Println(\"跳过坏行:\", line); continue }\n\t\tname := strings.TrimSpace(fields[0])\n\t\tscore, err := strconv.Atoi(strings.TrimSpace(fields[1]))\n\t\tif err != nil { fmt.Println(\"跳过坏行:\", line); continue }\n\t\ttotal += score\n\t\tcount++\n\t\tif score > best {\n\t\t\tbest, bestName = score, name\n\t\t}\n\t}\n\tfmt.Println(\"有效人数:\", count)\n\tfmt.Printf(\"平均分: %.1f\\n\", float64(total)/float64(count))\n\tfmt.Println(\"最高分:\", best, bestName)\n}\n",
+      "starter": "package main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n\t\"strings\"\n)\n\nfunc main() {\n\traw := \"小明,88; 小红 , 95 ;小刚,79;错误行\"\n\ttotal, count, best, bestName := 0, 0, 0, \"\"\n\tfor _, line := range strings.Split(raw, \";\") {\n\t\tline = strings.TrimSpace(line)\n\t\tfields := strings.Split(line, \",\")\n\t\tif len(fields) != 2 { fmt.Println(\"跳过坏行:\", line); continue }\n\t\t// TODO: 姓名和分数都带空格，先清洗；Atoi 的错误也不能丢。\n\t\tname := fields[0]\n\t\tscore, _ := strconv.Atoi(fields[1])\n\t\ttotal += score\n\t\tcount++\n\t\tif score > best {\n\t\t\tbest, bestName = score, name\n\t\t}\n\t}\n\tfmt.Println(\"有效人数:\", count)\n\tfmt.Printf(\"平均分: %.1f\\n\", float64(total)/float64(count))\n\tfmt.Println(\"最高分:\", best, bestName)\n}\n",
+      "task": "starter 跳过了清洗和错误处理：姓名带着空格、` 95 ` 转换失败被当成 0 分、坏行照样计数，所以平均分变成 55.7、最高分变成小明。请补上 `TrimSpace` 清洗并处理 Atoi 的错误（坏行打印 `跳过坏行: xxx` 后跳过），让输出变成：\n\n```\n跳过坏行: 错误行\n有效人数: 3\n平均分: 87.3\n最高分: 95 小红\n```",
+      "expectedOutput": "跳过坏行: 错误行\n有效人数: 3\n平均分: 87.3\n最高分: 95 小红",
+      "hints": [
+        "每个字段都要单独清洗：姓名用 `strings.TrimSpace(fields[0])`，分数先 `strings.TrimSpace(fields[1])` 再 `Atoi`。",
+        "Atoi 的错误不能丢：`score, err := ...`，`err != nil` 时打印「跳过坏行」并 `continue`；字段数不等于 2 的坏行已经有现成分支拦住。",
+        "清洗后总分 88+95+79=262，平均分 262/3≈87.3，最高分是 95 分的小红。"
+      ],
+      "quiz": {
+        "question": "解析 CSV 文本时，为什么要在访问 `fields[1]` 之前先判断 `len(fields) != 2`？",
+        "options": [
+          "因为 Split 遇到坏行会返回 nil",
+          "坏行可能只有一个字段，直接下标访问会 panic",
+          "因为这样能自动去掉字段里的空格",
+          "因为 Atoi 要求先判断长度，否则报错"
+        ],
+        "answer": 1,
+        "explanation": "Split 只负责按分隔符切分，不校验结构；字段数不足时用 fields[1] 会越界 panic。正确顺序是先做结构校验、再清洗、最后转换；去掉空格要显式调用 TrimSpace。"
+      },
+      "takeaways": [
+        "文本处理按「拆分 → 清洗 → 转换 → 汇总 → 输出」组织。",
+        "结构校验要放在下标访问之前，转换错误不能忽略。",
+        "浮点结果用 %.1f 之类的精度控制输出，避免整数除法截断。"
+      ]
+    }
+  ]
+}
