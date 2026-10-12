@@ -110,6 +110,8 @@ go -C app run ./cmd/gostudy -no-browser -addr 127.0.0.1:7731
 
 保留终端窗口，复制**完整地址**打开。关闭终端或按 Ctrl+C 停止本地引擎。`-data-dir /你的目录` 可指定学习状态存储位置。
 
+不想装 Go 环境的话，可以直接从 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 下载 Linux 版：`GoStudy-linux-amd64`（x86-64）或 `GoStudy-linux-arm64`，都是静态链接的单个文件，`chmod +x` 后运行即可；也可以用 `bash app/scripts/build-linux.sh` 自行构建这两种架构。
+
 > 💡 **技巧**：npm 官方源无法连接时，可以为本次命令指定 `--registry=https://registry.npmmirror.com`，无需修改全局配置。生产构建仍应使用并检查锁文件。
 
 前端热更新开发需要先启动固定端口的 Go 引擎：
@@ -171,15 +173,22 @@ bash app/scripts/install-mobile-tools.sh
 bash app/scripts/build-android.sh debug
 ```
 
-构建脚本使用固定版本 gomobile/gobind，以及带校验值的 Gradle 8.11.1 wrapper。调试产物路径为 `app/release/GoStudy-debug.apk`（约 68 MB，含四种 ABI）。仓库的 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 里已经提供了一份构建好的 debug 签名 APK，不想自己搭 Android 工具链的话可以直接下载安装。发布构建：
+构建脚本使用固定版本 gomobile/gobind，以及带校验值的 Gradle 8.11.1 wrapper。调试产物路径为 `app/release/GoStudy-debug.apk`。仓库的 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 里提供了正式签名的 `GoStudy-android-release.apk`（约 65 MB，含四种 ABI），不想自己搭 Android 工具链的话可以直接下载安装。
+
+正式版需要签名才能安装，脚本支持自动完成 zipalign 与签名：
 
 ```bash
+export GOSTUDY_KEYSTORE=/路径/gostudy-release.jks
+export GOSTUDY_KEY_ALIAS=gostudy
+export GOSTUDY_KEY_PASSWORD=你的密钥库密码
 bash app/scripts/build-android.sh release
 ```
 
-发布产物为 `app/release/GoStudy-release-unsigned.apk`，需要自行签名后分发。签名材料不进入仓库。
+设置这三个变量时产出 `app/release/GoStudy-release.apk`（已签名并打印证书信息）；不设置则产出 `GoStudy-release-unsigned.apk` 并提示如何手动签名。
 
-> ⚠️ **常见坑**：只有 Java 运行时而没有 `javac` 不能构建 Android。Android 平台、NDK 与 Go 移动绑定工具缺一不可。首次构建需要下载工具和依赖；安装完成后的课程练习可以离线运行。
+> ⚠️ **签名密钥必须长期保管好**：Android 用签名判断应用身份，密钥丢了或换了，新版本就无法覆盖安装旧版本，只能让用户卸载重装。密钥库与密码都不要提交到仓库（`.gitignore` 已忽略 `*.jks`）。
+
+> ⚠️ **常见坑**：只有 Java 运行时而没有 `javac` 不能构建 Android。Android 平台、NDK 与 Go 移动绑定工具缺一不可。首次构建需要下载工具和依赖；安装完成后的课程练习可以离线运行。下载 Go 模块遇到网络问题时，可临时设置 `GOPROXY=https://goproxy.cn,direct`。
 
 手机端笔记导出显示可选择的 Markdown 文本并提供复制按钮；系统不允许剪贴板访问时可以长按手动复制。桌面端通过浏览器下载 Markdown。当前 Android 版本没有原生文件导出与分享桥接。
 
@@ -262,7 +271,7 @@ bash app/scripts/build-windows.sh
 
 界面验收使用无头 Chromium 完成：1440×940 与 390×844 两种视口下截取首页、课程目录、课程详情、动手挑战、AI 导师抽屉与设置页共八张截图，控制台无报错；实测计算样式为页面底色 `rgb(251,252,254)`、标题 `rgb(19,11,67)`、主按钮 `rgb(96,79,205)` 且圆角 8px，与参考站点一致，Poppins 字体加载成功且中文正常渲染。截图验收能证明布局与配色未崩坏，但不能替代真机上的字体、交互与性能体验。Windows 退出流程已在本机验证：调用退出接口后进程结束、端口释放、重复退出保持幂等。
 
-Android 构建环境与产物现状：本机已用官方源安装 SDK 35 / build-tools 35.0.0 / NDK 27.2.12479018，并产出 debug 签名 APK（约 68 MB，含 arm64-v8a、armeabi-v7a、x86、x86_64 四种 ABI），已通过包结构、清单与签名校验（`aapt2 dump badging`、`apksigner verify`）。**但还没有在真机上安装并跑完学习流程**，触摸交互、WebView 表现和安装兼容性都需要真机验收。
+Android 构建环境与产物现状：本机已用官方源安装 SDK 35 / build-tools 35.0.0 / NDK 27.2.12479018，产出并签署了 release APK（约 65 MB，含 arm64-v8a、armeabi-v7a、x86、x86_64 四种 ABI）。校验结果：`apksigner verify` 通过（APK Signature Scheme v2 + v3，证书 CN=GoStudy，非 debug 证书）、`aapt2 dump badging` 显示 `versionName=0.3.1`、`minSdkVersion=26`、`targetSdkVersion=35`，且没有 `application-debuggable` 标记。**但还没有在真机上安装并跑完学习流程**，触摸交互、WebView 表现和安装兼容性都需要真机验收。
 
 课程已覆盖仓库 `go-basic`、`go-advance`、`go-practice` 三部分共 8 篇文档的核心章节（43 节）。文档中较长篇幅的面试题汇总、框架集成细节（Gin、GORM、Redis、Kafka 等）尚未逐条转换为课程；仓库原有长篇资料保持完整。后续扩展课程应添加明确任务、可运行参考解答和预期输出，并纳入全课程执行测试。
 

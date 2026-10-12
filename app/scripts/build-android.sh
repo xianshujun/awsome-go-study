@@ -10,7 +10,8 @@ if [[ "${1:-}" == '--help' ]]; then
         'First run scripts/install-mobile-tools.sh to install pinned binding tools.' \
         'Builds all Android ABIs with min API 26; uses the checked-in Gradle wrapper.' \
         'Debug output: release/GoStudy-debug.apk (development signing).' \
-        'Release output: release/GoStudy-release-unsigned.apk (sign before installation).'
+        'Release output: release/GoStudy-release-unsigned.apk, or release/GoStudy-release.apk' \
+        'when GOSTUDY_KEYSTORE / GOSTUDY_KEY_ALIAS / GOSTUDY_KEY_PASSWORD are set (auto zipalign + sign).'
     exit 0
 fi
 [[ $# -le 1 ]] || fail 'Use --help for usage.'
@@ -65,3 +66,28 @@ else
 fi
 cp -- "$SOURCE_APK" "$DEST_APK"
 printf 'Android package: %s\n' "$DEST_APK"
+
+# release 版必须签名才能安装。设置下面三个变量即可自动 zipalign + 签名：
+#   GOSTUDY_KEYSTORE=/路径/gostudy-release.jks
+#   GOSTUDY_KEY_ALIAS=gostudy
+#   GOSTUDY_KEY_PASSWORD=你的密码
+# 未设置时保持输出未签名包，并提示如何签名。
+if [[ "$MODE" == release ]]; then
+    if [[ -n "${GOSTUDY_KEYSTORE:-}" && -n "${GOSTUDY_KEY_ALIAS:-}" && -n "${GOSTUDY_KEY_PASSWORD:-}" ]]; then
+        BT_DIR="$ANDROID_HOME/build-tools/35.0.0"
+        [[ -x "$BT_DIR/zipalign" && -x "$BT_DIR/apksigner" ]] || fail 'zipalign/apksigner 缺失，检查 build-tools 35.0.0。'
+        SIGNED_APK="$APP_DIR/release/GoStudy-release.apk"
+        ALIGNED_APK="$(mktemp -u "$APP_DIR/release/.aligned.XXXXXX.apk")"
+        "$BT_DIR/zipalign" -p -f 4 "$DEST_APK" "$ALIGNED_APK"
+        "$BT_DIR/apksigner" sign --ks "$GOSTUDY_KEYSTORE" --ks-key-alias "$GOSTUDY_KEY_ALIAS" \
+            --ks-pass "pass:$GOSTUDY_KEY_PASSWORD" --key-pass "pass:$GOSTUDY_KEY_PASSWORD" \
+            --out "$SIGNED_APK" "$ALIGNED_APK"
+        rm -f -- "$ALIGNED_APK"
+        "$BT_DIR/apksigner" verify --print-certs "$SIGNED_APK" | head -3
+        printf 'Signed release APK: %s\n' "$SIGNED_APK"
+    else
+        printf '%s\n' '未设置 GOSTUDY_KEYSTORE / GOSTUDY_KEY_ALIAS / GOSTUDY_KEY_PASSWORD，输出未签名包。' \
+            '安装前需要自行签名：zipalign -p -f 4 未签名.apk 对齐.apk && apksigner sign --ks 密钥库 对齐.apk'
+    fi
+fi
+
