@@ -25,7 +25,8 @@ import java.util.concurrent.Executors;
 import mobile.Mobile;
 
 public final class MainActivity extends Activity {
-    private static final int BACKGROUND = Color.rgb(251, 252, 254);
+    // 与前端 --paper 保持一致，避免启动瞬间闪一次旧底色。
+    private static final int BACKGROUND = Color.rgb(246, 247, 247);
     // 启动和停止串行执行；旋转屏幕不会启动第二个 Go 引擎。
     private static final ExecutorService ENGINE = Executors.newSingleThreadExecutor();
     private static String engineUrl;
@@ -112,7 +113,7 @@ public final class MainActivity extends Activity {
         container.removeAllViews();
         TextView message = new TextView(this);
         message.setText(resource);
-        message.setTextColor(Color.rgb(19, 11, 67));
+        message.setTextColor(Color.rgb(17, 24, 27));
         message.setTextSize(17);
         message.setGravity(Gravity.CENTER);
         message.setPadding(32, 32, 32, 32);
