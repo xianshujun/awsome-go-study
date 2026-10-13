@@ -1,6 +1,7 @@
 # 🚀 Go 学习之路 - go-study
 
 <p align="center">
+  <a href="https://xianshujun.github.io/awsome-go-study/"><img src="https://img.shields.io/badge/落地页-在线预览-0f5666.svg" alt="落地页"></a>
   <img src="https://img.shields.io/badge/语言-Go-blue.svg" alt="Language">
   <img src="https://img.shields.io/badge/类型-学习资源-brightgreen.svg" alt="Type">
   <img src="https://img.shields.io/badge/难度-从入门到进阶-orange.svg" alt="Difficulty">
@@ -39,6 +40,8 @@
 - **真实运行代码**：练习由内置 Go 解释器在本机执行，限制导入符号、运行时间与输出大小，不开放文件与网络访问。
 - **可配置的 AI 导师**：支持 OpenAI Chat Completions 兼容接口，也可以接本机模型；结合当前课程、代码和笔记做引导式提问，只有你主动提问时才发送上下文。
 - **本地优先**：没有账号，学习进度、笔记和草稿都保存在本机，断网也能继续学。
+
+**在线落地页**：<https://xianshujun.github.io/awsome-go-study/> —— 一页看完功能、界面截图与三平台下载入口，源码在 [`landing/`](landing/)。
 
 **界面预览**
 
