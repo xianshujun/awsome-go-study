@@ -28,6 +28,22 @@
 - ✅ 熟悉标准库和工程实践
 - ✅ 掌握实际开发技能
 
+## 🛣️ Go 学习路线
+
+### 🔵 1. Go 语言基础
+- 📘 [go语言语法](go-basic/go-grammar.md) - 打好基础
+- 📘 [go并发编程](go-basic/go-concurrency.md) - 掌握核心特性
+
+### 🟡 2. Go 语言进阶
+- 📒 [go语言深挖](go-advance/go-deepdive.md) - 深入理解语言特性
+- 📒 [go语言标准库](go-advance/go-standardlib.md) - 熟悉常用库
+- 📒 [工程实践](go-advance/go-engineering.md) - 实际项目应用与工程规范
+
+### 🔴 3. Go 语言开发实战
+- 📕 [go语言网络开发](go-practice/go-webdev.md) - Web 开发技能
+- 📕 [中间件与工具集成](go-practice/go-middleware.md) - 系统集成能力
+- 📕 [go语言微服务](go-practice/go-microservices.md) - 现代架构实践
+
 ## 🖥️ GoStudy 交互式学习应用
 
 [GoStudy](app/README.md) 提供 React 界面与 Go 本地学习引擎，包含引导课程、代码运行、理解题、学习笔记和可配置的 AI 导师。课程与练习可以离线使用，不需要部署服务端。
@@ -65,22 +81,6 @@
 
 Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签名证书，非应用商店分发），内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 65 MB；安装时需要允许「未知来源」。签名密钥由维护者保管，一旦丢失将导致后续版本无法覆盖安装，请勿提交到仓库。
 开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
-
-## 🛣️ Go 学习路线
-
-### 🔵 1. Go 语言基础
-- 📘 [go语言语法](go-basic/go-grammar.md) - 打好基础
-- 📘 [go并发编程](go-basic/go-concurrency.md) - 掌握核心特性
-
-### 🟡 2. Go 语言进阶
-- 📒 [go语言深挖](go-advance/go-deepdive.md) - 深入理解语言特性
-- 📒 [go语言标准库](go-advance/go-standardlib.md) - 熟悉常用库
-- 📒 [工程实践](go-advance/go-engineering.md) - 实际项目应用与工程规范
-
-### 🔴 3. Go 语言开发实战
-- 📕 [go语言网络开发](go-practice/go-webdev.md) - Web 开发技能
-- 📕 [中间件与工具集成](go-practice/go-middleware.md) - 系统集成能力
-- 📕 [go语言微服务](go-practice/go-microservices.md) - 现代架构实践
 
 ---
 
