@@ -1,0 +1,61 @@
+name: Pages
+
+# 把 landing/ 发布成落地页。截图与字体直接从应用目录复制，
+# 保证与桌面/安卓端用的是同一份资源，不会出现两处截图不一致。
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'landing/**'
+      - 'app/docs/screenshots/**'
+      - 'app/frontend/public/fonts/**'
+      - 'app/frontend/public/favicon.svg'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 组装站点
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 组装 landing 与共享资源
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/fonts _site/screenshots
+          cp landing/index.html landing/styles.css _site/
+          cp app/frontend/public/favicon.svg _site/
+          cp app/frontend/public/fonts/*.woff2 _site/fonts/
+          cp app/docs/screenshots/*.png _site/screenshots/
+          # 落地页只引用这些资源，缺一个就说明路径写错了
+          test -s _site/index.html
+          test -s _site/screenshots/03-lesson.png
+          test -s _site/fonts/space-grotesk-latin-wght-normal.woff2
+          ls -R _site | head -20
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: 发布
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>GoStudy —— 在本地跑通每一课 Go</title>
+    <meta
+      name="description"
+      content="GoStudy 是离线的 Go 学习应用：43 个可运行练习，改几行真代码就能看到输出，进度、笔记都留在本机。Windows / Android / Linux 均可下载。"
+    />
+    <meta name="theme-color" content="#f6f7f7" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preload" href="fonts/space-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="styles.css" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GoStudy —— 在本地跑通每一课 Go" />
+    <meta
+      property="og:description"
+      content="43 个可运行练习，改几行真代码就能看到输出。课程、进度与笔记留在本机，不联网也能学。"
+    />
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/xianshujun/awsome-go-study/master/app/docs/screenshots/03-lesson.png"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到主要内容</a>
+
+    <header class="topbar">
+      <span class="topbar-edge" aria-hidden="true"></span>
+      <div class="topbar-inner">
+        <a class="brand" href="#top" aria-label="GoStudy 首页">
+          <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M16 2.6 27.4 9.1v13L16 28.6 4.6 22.1v-13z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" />
+            <path d="M20.7 12.9a5.3 5.3 0 1 0 .9 4.5h-4.9" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>GoStudy</span>
+        </a>
+        <nav class="nav" aria-label="页面导航">
+          <a href="#features">功能</a>
+          <a href="#shots">截图</a>
+          <a href="#get">获取</a>
+          <a href="https://github.com/xianshujun/awsome-go-study/blob/master/app/README.md">应用说明</a>
+        </nav>
+        <a
+          class="button primary"
+          href="https://github.com/xianshujun/awsome-go-study/releases/latest"
+        >
+          下载
+        </a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-text">
+          <span class="pill"><span class="pill-dot"></span>yaegi · 本地解释执行</span>
+          <h1>在本地<span class="hl">跑通</span>每一课 Go。</h1>
+          <p class="lead">
+            43 个练习，改几行真代码就能看到输出。课程、进度和笔记都留在本机，断网也能学；
+            需要讲解时，再接你自己指定的模型。
+          </p>
+          <div class="actions">
+            <a class="button primary large" href="https://github.com/xianshujun/awsome-go-study/releases/latest">
+              下载 GoStudy <span aria-hidden="true">→</span>
+            </a>
+            <a class="button large" href="https://github.com/xianshujun/awsome-go-study">查看源码</a>
+          </div>
+          <p class="footnote">
+            Windows <span>·</span> Android 8.0+ <span>·</span> Linux
+            <span>·</span> 无需安装 Go 环境
+          </p>
+        </div>
+
+        <div class="stage" aria-hidden="true">
+          <div class="stage-bar">
+            <span class="stage-file">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="m18 16 4-4-4-4M6 8l-4 4 4 4m8.5-12-5 16" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              main.go
+            </span>
+            <span class="stage-lesson">go-basic · 第一行 Go 代码</span>
+          </div>
+          <pre class="stage-code"><code><span class="l1"><span class="k">package</span> main</span>
+<span class="l2"></span>
+<span class="l3"><span class="k">import</span> <span class="s">"fmt"</span></span>
+<span class="l4"></span>
+<span class="l5"><span class="k">func</span> <span class="f">main</span>() {</span>
+<span class="l6">  fmt.<span class="f">Println</span>(<span class="s">"Hello, Go!"</span>)</span>
+<span class="l7">}</span></code></pre>
+          <div class="stage-flow"><span>本地解释执行</span><i></i></div>
+          <div class="stage-term">
+            <div class="stage-term-head">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="m4 17 6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              运行结果
+              <span class="stage-chip">✓ 挑战通过</span>
+            </div>
+            <p class="stage-out"><span class="prompt">$ </span>Hello, Go!</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <p class="eyebrow">功能</p>
+        <h2>为"自己跑一遍"而做</h2>
+        <div class="cards">
+          <article class="card">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="m4 17 6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <h3>43 个练习，真的能跑</h3>
+            <p>
+              受限解释器在本地执行你改的代码，输出和报错原样返回。不开放文件与网络访问，
+              也不需要你先装好 Go。
+            </p>
+          </article>
+          <article class="card">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <h3>通过看得见</h3>
+            <p>
+              一次运行拆成编译、执行、比对三个阶段，结果与期望输出逐行对齐，每一行一个对勾；
+              再答对一道理解题，才算掌握这一课。
+            </p>
+          </article>
+          <article class="card">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <h3>导师在需要时</h3>
+            <p>
+              接 OpenAI 兼容接口，也可以指向本机模型。只有你主动提问时，才发送当前这一课、
+              你的代码和笔记。
+            </p>
+          </article>
+          <article class="card">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <h3>没有账号，没有上传</h3>
+            <p>
+              课程内容编译进可执行文件，学习状态写在你的设备上。单文件启动一个只监听回环地址的
+              本机引擎，浏览器不直接持有密钥。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="shots" class="section">
+        <p class="eyebrow">截图</p>
+        <h2>界面用的是同一套设计语言</h2>
+        <div class="shots">
+          <figure class="shot wide">
+            <img
+              src="screenshots/03-lesson.png"
+              alt="课程页：左侧是讲义与练习，右侧是墨色代码编辑器与运行结果，输出逐行打勾"
+              loading="lazy"
+              width="1440"
+              height="940"
+            />
+            <figcaption><strong>课程与练习</strong>浅色讲义配墨色编辑器，运行结果逐行对勾。</figcaption>
+          </figure>
+          <figure class="shot">
+            <img
+              src="screenshots/01-home.png"
+              alt="首页：左侧介绍，右侧真实课程代码的运行演示"
+              loading="lazy"
+              width="1440"
+              height="940"
+            />
+            <figcaption><strong>学习空间</strong>首屏直接演示一段真实课程代码的运行过程。</figcaption>
+          </figure>
+          <figure class="shot">
+            <img
+              src="screenshots/06-mobile.png"
+              alt="手机端首页，深色代码演示面板在上方"
+              loading="lazy"
+              width="780"
+              height="1688"
+            />
+            <figcaption><strong>手机端</strong>同一套界面，窄屏纵向排列。</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="get" class="section">
+        <p class="eyebrow">获取</p>
+        <h2>三个平台，下载即用</h2>
+        <div class="downloads">
+          <a class="download" href="https://github.com/xianshujun/awsome-go-study/releases/latest">
+            <span class="download-os">Windows</span>
+            <strong>GoStudy.exe</strong>
+            <span class="download-note">双击即用，用 Edge / Chrome 的应用窗口打开界面。</span>
+          </a>
+          <a class="download" href="https://github.com/xianshujun/awsome-go-study/releases/latest">
+            <span class="download-os">Android</span>
+            <strong>GoStudy-android-release.apk</strong>
+            <span class="download-note">Android 8.0+，自签名可直接安装，约 65 MB。</span>
+          </a>
+          <a class="download" href="https://github.com/xianshujun/awsome-go-study/releases/latest">
+            <span class="download-os">Linux</span>
+            <strong>GoStudy-linux-amd64 / arm64</strong>
+            <span class="download-note">静态单文件，<code>chmod +x</code> 后直接运行。</span>
+          </a>
+        </div>
+        <div class="fromsource">
+          <h3>从源码运行</h3>
+          <pre><code>git clone https://github.com/xianshujun/awsome-go-study
+cd awsome-go-study/app
+go run ./cmd/gostudy -no-browser</code></pre>
+          <p class="muted">
+            需要 Go 1.25+ 与 Node.js 22.12+（首次构建前端）。构建 Windows、Android 与 Linux
+            产物的完整命令见
+            <a href="https://github.com/xianshujun/awsome-go-study/blob/master/app/README.md">应用说明</a>。
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <p class="eyebrow">构成</p>
+        <h2>用什么做的</h2>
+        <dl class="stack">
+          <div>
+            <dt>引擎</dt>
+            <dd>Go 1.22+ · yaegi 受限解释器 · 编译期嵌入前端资源 · Android 侧用 gomobile 绑定</dd>
+          </div>
+          <div>
+            <dt>界面</dt>
+            <dd>React 19 · TypeScript · CodeMirror 6 · Radix UI 无障碍原语 · Motion 动效</dd>
+          </div>
+          <div>
+            <dt>设计</dt>
+            <dd>近中性底色与单一强调色，代码区为墨色表面，全站零渐变；Space Grotesk + JetBrains Mono 拉丁子集自托管</dd>
+          </div>
+          <div>
+            <dt>课程</dt>
+            <dd>与仓库里的 8 篇 Go 文档一一对应，共 43 节；每节标注来源章节，方便回到原文继续深入</dd>
+          </div>
+        </dl>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span class="footer-brand">
+          <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M16 2.6 27.4 9.1v13L16 28.6 4.6 22.1v-13z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" />
+            <path d="M20.7 12.9a5.3 5.3 0 1 0 .9 4.5h-4.9" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          GoStudy
+        </span>
+        <nav aria-label="页脚导航">
+          <a href="https://github.com/xianshujun/awsome-go-study">GitHub 仓库</a>
+          <a href="https://github.com/xianshujun/awsome-go-study/releases">全部版本</a>
+          <a href="https://github.com/xianshujun/awsome-go-study/blob/master/app/README.md">应用说明</a>
+        </nav>
+        <span class="footer-note">本地优先：没有账号，没有上传。</span>
+      </div>
+    </footer>
+  </body>
+</html>
