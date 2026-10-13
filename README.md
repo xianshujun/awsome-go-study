@@ -1,6 +1,7 @@
 # 🚀 Go 学习之路 - go-study
 
 <p align="center">
+  <a href="https://github.com/xianshujun/awsome-go-study/stargazers"><img src="https://img.shields.io/github/stars/xianshujun/awsome-go-study?color=0f5666&label=Stars" alt="GitHub Stars"></a>
   <a href="https://xianshujun.github.io/awsome-go-study/"><img src="https://img.shields.io/badge/落地页-在线预览-0f5666.svg" alt="落地页"></a>
   <img src="https://img.shields.io/badge/语言-Go-blue.svg" alt="Language">
   <img src="https://img.shields.io/badge/类型-学习资源-brightgreen.svg" alt="Type">
@@ -93,13 +94,3 @@ Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签
 ###  许可证
 
 MIT License - 允许任何人自由使用、修改和分发代码，但需要保留原作者信息。
-
----
-
-### ⭐ Star 趋势
-
-如果这个项目帮到了你，欢迎点一个 Star ⭐ 支持一下。
-
-<a href="https://github.com/xianshujun/awsome-go-study/stargazers"><img src="https://img.shields.io/github/stars/xianshujun/awsome-go-study?color=0f5666&label=Stars" alt="GitHub Stars"></a>
-
-> 数字由 [shields.io](https://shields.io) 从 GitHub API 读取；落地页顶部也显示实时数字，逐日趋势见 [star-history.com](https://star-history.com/#xianshujun/awsome-go-study&Date)。
