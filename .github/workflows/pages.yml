@@ -1,15 +1,13 @@
 name: Pages
 
-# 把 landing/ 发布成落地页。截图与字体直接从应用目录复制，
-# 保证与桌面/安卓端用的是同一份资源，不会出现两处截图不一致。
+# 构建 landing/ 并发布到 GitHub Pages。
+# 截图在构建后从应用目录复制进产物，保证与应用用的是同一份。
 on:
   push:
     branches: [master]
     paths:
       - 'landing/**'
       - 'app/docs/screenshots/**'
-      - 'app/frontend/public/fonts/**'
-      - 'app/frontend/public/favicon.svg'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -24,30 +22,41 @@ concurrency:
 
 jobs:
   build:
-    name: 组装站点
+    name: 构建落地页
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
     steps:
       - uses: actions/checkout@v7
 
-      - name: 组装 landing 与共享资源
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 构建
+        run: npm run build
+
+      - name: 复制应用截图进产物
         run: |
           set -euo pipefail
-          rm -rf _site
-          mkdir -p _site/fonts _site/screenshots
-          cp landing/index.html landing/styles.css _site/
-          cp app/frontend/public/favicon.svg _site/
-          cp app/frontend/public/fonts/*.woff2 _site/fonts/
-          cp app/docs/screenshots/*.png _site/screenshots/
-          # 落地页只引用这些资源，缺一个就说明路径写错了
-          test -s _site/index.html
-          test -s _site/screenshots/03-lesson.png
-          test -s _site/fonts/space-grotesk-latin-wght-normal.woff2
-          ls -R _site | head -20
+          mkdir -p dist/screenshots
+          cp ../app/docs/screenshots/*.png dist/screenshots/
+          # 少一个关键文件就说明路径写错了
+          test -s dist/index.html
+          test -s dist/screenshots/03-lesson.png
+          test -s dist/screenshots/06-mobile.png
+          ls dist
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: _site
+          path: landing/dist
 
   deploy:
     name: 发布
