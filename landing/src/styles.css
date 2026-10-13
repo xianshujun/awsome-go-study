@@ -163,6 +163,44 @@ a:hover > .arrow {
 .nav a:hover::after {
   transform: scaleX(1);
 }
+/* 实时 Star 数：数字来自 GitHub API，未拿到时只显示图标与文字 */
+.star-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition: color 0.16s, border-color 0.16s;
+}
+.star-link:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+.star-mark {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.star-link strong,
+.star-foot strong {
+  font: 600 13px var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.star-foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.star-foot .star-mark {
+  width: 12px;
+  height: 12px;
+  color: var(--primary);
+}
+
 .nav a:hover {
   color: var(--ink);
 }
@@ -951,6 +989,9 @@ main {
     height: 24px;
   }
   .nav {
+    display: none;
+  }
+  .star-link {
     display: none;
   }
   .topbar-inner > .button {

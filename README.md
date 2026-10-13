@@ -100,12 +100,6 @@ MIT License - 允许任何人自由使用、修改和分发代码，但需要保
 
 如果这个项目帮到了你，欢迎点一个 Star ⭐ 支持一下。
 
-<a href="https://star-history.com/#xianshujun/awsome-go-study&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=xianshujun/awsome-go-study&type=Date" width="640" />
-  </picture>
-</a>
+<a href="https://github.com/xianshujun/awsome-go-study/stargazers"><img src="https://img.shields.io/github/stars/xianshujun/awsome-go-study?color=0f5666&label=Stars" alt="GitHub Stars"></a>
 
-> 图表由 [star-history.com](https://star-history.com) 生成。
+> 数字由 [shields.io](https://shields.io) 从 GitHub API 读取；落地页顶部也显示实时数字，逐日趋势见 [star-history.com](https://star-history.com/#xianshujun/awsome-go-study&Date)。

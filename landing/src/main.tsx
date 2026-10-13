@@ -444,6 +444,104 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   );
 }
 
+/** 仓库坐标与 Star 数据。拉不到数字时只显示链接，绝不显示编造的数值。 */
+const REPO = "xianshujun/awsome-go-study";
+const STAR_CACHE_KEY = "gostudy-stars";
+const STAR_CACHE_TTL = 10 * 60 * 1000;
+
+let starRequest: Promise<number | null> | undefined;
+
+function loadStars(): Promise<number | null> {
+  starRequest ??= (async () => {
+    // 未认证的 GitHub API 限 60 次/小时/IP：同一会话先读缓存，过期再回源。
+    try {
+      const cached = sessionStorage.getItem(STAR_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as { count?: number; at?: number };
+        if (
+          typeof parsed.count === "number" &&
+          Date.now() - (parsed.at ?? 0) < STAR_CACHE_TTL
+        ) {
+          return parsed.count;
+        }
+      }
+    } catch {
+      // 隐私模式下 sessionStorage 不可用，直接回源。
+    }
+    // 网络抖动时重试一次；被限流（非 2xx）不重试，避免继续消耗配额。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        // 加超时：接口不通时尽快放弃，不留一个挂着的请求。
+        const response = await fetch(`https://api.github.com/repos/${REPO}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) return null;
+        const data = (await response.json()) as { stargazers_count?: number };
+        if (typeof data.stargazers_count !== "number") return null;
+        try {
+          sessionStorage.setItem(
+            STAR_CACHE_KEY,
+            JSON.stringify({ count: data.stargazers_count, at: Date.now() }),
+          );
+        } catch {
+          // 存不下只影响下次访问。
+        }
+        return data.stargazers_count;
+      } catch {
+        if (attempt === 1) return null;
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+    return null;
+  })();
+  return starRequest;
+}
+
+function formatStars(count: number) {
+  return count < 1000 ? String(count) : `${(count / 1000).toFixed(1)}k`;
+}
+
+function StarMark() {
+  return (
+    <svg className="star-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 2.6l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.2l-5.72 3.01 1.09-6.37L2.74 9.33l6.4-.93z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+/** 实时 Star 数：未拿到数据时只显示图标与文字，拿到后补上数字。 */
+function StarCount({ className }: { className: string }) {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void loadStars().then((value) => {
+      if (alive) setCount(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <a
+      className={className}
+      href={`https://github.com/${REPO}/stargazers`}
+      title="在 GitHub 上给 GoStudy 点个 Star"
+      aria-label={
+        count === null
+          ? "去 GitHub 给 GoStudy 加 Star"
+          : `当前 ${count} 个 Star，去 GitHub 加 Star`
+      }
+    >
+      <StarMark />
+      <span>Star</span>
+      {count !== null && <strong>{formatStars(count)}</strong>}
+    </a>
+  );
+}
+
 function MobileMenu() {
   const [open, setOpen] = useState(false);
   return (
@@ -589,6 +687,7 @@ function Page() {
                   <a href="#faq">常见问题</a>
                   <a href="#get">下载</a>
                 </nav>
+                <StarCount className="star-link" />
                 <MobileMenu />
                 <Button asChild className="button primary">
                   <a href="#get">
@@ -872,6 +971,7 @@ go run ./cmd/gostudy -no-browser`}</code>
                   <a href="https://github.com/xianshujun/awsome-go-study">
                     GitHub 仓库
                   </a>
+                  <StarCount className="star-foot" />
                   <a href="https://github.com/xianshujun/awsome-go-study/releases">
                     全部版本
                   </a>
