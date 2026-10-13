@@ -46,7 +46,11 @@ jobs:
             echo "非 tag 触发，跳过 Release 上传，仅保留构建产物。"
             exit 0
           fi
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "GoStudy $tag" --generate-notes
+          # desktop 与 android 两个 job 并行，会同时走到这里；创建失败（对方已创建）
+          # 不算错误，继续上传即可。
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "GoStudy $tag" --generate-notes \
+            || echo "Release 已由并行任务创建，继续上传。"
           gh release upload "$tag" \
             app/release/GoStudy.exe \
             app/release/GoStudy-linux-amd64 \
@@ -132,12 +136,18 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           apk="app/release/GoStudy-release.apk"
-          [[ -f "$apk" ]] || apk="app/release/GoStudy-release-unsigned.apk"
+          asset="GoStudy-android-release.apk"
+          if [[ ! -f "$apk" ]]; then
+            apk="app/release/GoStudy-release-unsigned.apk"
+            asset="GoStudy-android-release-unsigned.apk"
+          fi
           if [[ "${GITHUB_EVENT_NAME}" != "push" || -z "${tag}" ]]; then
             echo "非 tag 触发，跳过 Release 上传，仅保留构建产物。"
             exit 0
           fi
-          gh release upload "$tag" "$apk" --clobber
+          # 上传用与 README 一致的资源名，避免下载说明与实际文件名不符。
+          cp -- "$apk" "app/release/$asset"
+          gh release upload "$tag" "app/release/$asset" --clobber
 
       - name: 保存为工作流产物
         uses: actions/upload-artifact@v7
