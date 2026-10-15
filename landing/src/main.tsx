@@ -95,24 +95,39 @@ const faq = [
   },
 ];
 
-const downloads = [
+/** 下载区数据。asset 是 Release 里的资源名，落地页按它拼直链；改资源名要同步改这里。 */
+type Download = {
+  os: string;
+  /** 卡片的主动作：点整张卡片下载这个资源 */
+  asset: string;
+  note: string;
+  hint: string;
+  /** 同一平台的其他产物，做成卡片下方的次链接 */
+  others?: { asset: string; label: string }[];
+};
+
+const downloads: Download[] = [
   {
     os: "Windows",
-    file: "GoStudy.exe",
-    note: "双击就能用。界面用 Edge 或 Chrome 的应用窗口打开。",
-    hint: "约 12 MB，免安装",
+    asset: "GoStudy-Setup.exe",
+    note: "安装版。可以自己选装在哪个目录，装完自动建桌面和开始菜单快捷方式，卸载走系统「应用和功能」。",
+    hint: "安装包，可自选目录",
+    others: [{ asset: "GoStudy.exe", label: "免安装版：单个 exe，双击即用" }],
   },
   {
     os: "Android",
-    file: "GoStudy-android-release.apk",
+    asset: "GoStudy-android-release.apk",
     note: "Android 8.0 以上。自签名，装的时候需要允许未知来源。",
     hint: "约 65 MB，含四种 CPU 架构",
   },
   {
     os: "Linux",
-    file: "GoStudy-linux-amd64 / arm64",
+    asset: "GoStudy-linux-amd64",
     note: "静态单文件，chmod +x 之后直接运行。",
     hint: "约 12 MB，无动态依赖",
+    others: [
+      { asset: "GoStudy-linux-arm64", label: "arm64 版：树莓派、ARM 服务器" },
+    ],
   },
 ];
 
@@ -446,6 +461,10 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
 
 /** 仓库坐标与 Star 数据。拉不到数字时只显示链接，绝不显示编造的数值。 */
 const REPO = "xianshujun/awsome-go-study";
+/** 下载直链：latest/download 会跳到最新一次 Release 的对应资源，发新版本不用改页面。 */
+const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
+const latestAssetUrl = (name: string) =>
+  `${RELEASES_PAGE}/latest/download/${name}`;
 const STAR_CACHE_KEY = "gostudy-stars";
 const STAR_CACHE_TTL = 10 * 60 * 1000;
 
@@ -499,6 +518,99 @@ function loadStars(): Promise<number | null> {
 
 function formatStars(count: number) {
   return count < 1000 ? String(count) : `${(count / 1000).toFixed(1)}k`;
+}
+
+/**
+ * 最新 Release 里有哪些产物。
+ *
+ * 下载按钮的地址本身写成 releases/latest/download/<资源名>，新版本一发就自动指过去，
+ * 不需要改这个文件；这里查接口只是为了把版本号、发布时间和文件大小显示出来，
+ * 顺便确认某个平台的包在这个版本里确实存在。拿不到数据时按钮照旧能用。
+ */
+type ReleaseInfo = {
+  tag: string;
+  /** 发布日期，YYYY-MM-DD */
+  date: string;
+  /** 资源名 → 字节数 */
+  sizes: Record<string, number>;
+};
+
+const RELEASE_CACHE_KEY = "gostudy-release";
+const RELEASE_CACHE_TTL = 30 * 60 * 1000;
+
+let releaseRequest: Promise<ReleaseInfo | null> | undefined;
+
+function loadRelease(): Promise<ReleaseInfo | null> {
+  releaseRequest ??= (async () => {
+    // 未认证的 GitHub API 限 60 次/小时/IP：同一会话先读缓存，过期再回源。
+    try {
+      const cached = sessionStorage.getItem(RELEASE_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as { value?: ReleaseInfo; at?: number };
+        if (parsed.value && Date.now() - (parsed.at ?? 0) < RELEASE_CACHE_TTL) {
+          return parsed.value;
+        }
+      }
+    } catch {
+      // 隐私模式下 sessionStorage 不可用，直接回源。
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${REPO}/releases/latest`,
+          { signal: AbortSignal.timeout(5000) },
+        );
+        // 还没有 Release 时接口返回 404，这时保持静态文案即可。
+        if (!response.ok) return null;
+        const data = (await response.json()) as {
+          tag_name?: string;
+          published_at?: string;
+          assets?: { name?: string; size?: number }[];
+        };
+        if (!data.tag_name) return null;
+        const sizes: Record<string, number> = {};
+        for (const asset of data.assets ?? []) {
+          if (asset.name && typeof asset.size === "number") {
+            sizes[asset.name] = asset.size;
+          }
+        }
+        const value: ReleaseInfo = {
+          tag: data.tag_name,
+          date: (data.published_at ?? "").slice(0, 10),
+          sizes,
+        };
+        try {
+          sessionStorage.setItem(
+            RELEASE_CACHE_KEY,
+            JSON.stringify({ value, at: Date.now() }),
+          );
+        } catch {
+          // 存不下只影响下次访问。
+        }
+        return value;
+      } catch {
+        if (attempt === 1) return null;
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+    return null;
+  })();
+  return releaseRequest;
+}
+
+function formatSize(bytes: number) {
+  const megabytes = bytes / 1024 / 1024;
+  return megabytes >= 1
+    ? `${megabytes.toFixed(1)} MB`
+    : `${Math.round(bytes / 1024)} KB`;
+}
+
+/** 判断访客自己的系统，用来在对应卡片上标一句「你的系统」。 */
+function detectPlatform(agent: string): string | null {
+  if (/Android/i.test(agent)) return "Android";
+  if (/Windows NT/i.test(agent)) return "Windows";
+  if (/Linux/i.test(agent)) return "Linux";
+  return null;
 }
 
 function StarMark() {
@@ -590,6 +702,18 @@ function MobileMenu() {
 function Page() {
   const on = useMotionOn();
   const page = useRef<HTMLDivElement>(null);
+  // 下载区展示的版本信息；接口不通就退回卡片上的静态文案，链接照样可用。
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [platform] = useState(() => detectPlatform(navigator.userAgent));
+  useEffect(() => {
+    let alive = true;
+    void loadRelease().then((value) => {
+      if (alive) setRelease(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     const context = gsap.context(() => {
       if (!on) return;
@@ -877,32 +1001,75 @@ function Page() {
                   <br />
                   现在就写。
                 </motion.h2>
+                {release && (
+                  <motion.p className="downloads-version" {...reveal(on, 2)}>
+                    当前最新版本 {release.tag}
+                    {release.date && ` · ${release.date} 发布`}
+                  </motion.p>
+                )}
                 <div className="downloads">
-                  {downloads.map((item, i) => (
-                    <motion.div key={item.os} {...reveal(on, i)}>
-                      <Tooltip.Root>
-                        <Tooltip.Trigger asChild>
-                          <a
-                            className="download"
-                            href="https://github.com/xianshujun/awsome-go-study/releases/latest"
-                          >
-                            <span className="download-os">
-                              {item.os}
-                              <Arrow diagonal />
-                            </span>
-                            <strong>{item.file}</strong>
-                            <span className="download-note">{item.note}</span>
-                          </a>
-                        </Tooltip.Trigger>
-                        <Tooltip.Portal>
-                          <Tooltip.Content className="tooltip" sideOffset={8}>
-                            {item.hint}
-                            <Tooltip.Arrow className="tooltip-arrow" />
-                          </Tooltip.Content>
-                        </Tooltip.Portal>
-                      </Tooltip.Root>
-                    </motion.div>
-                  ))}
+                  {downloads.map((item, i) => {
+                    const size = release?.sizes[item.asset];
+                    // 只有「确实读到了最新版本、但里面没有这个产物」才改跳 Releases；
+                    // 读不到接口时按老办法给直链，latest/download 本来就是猜得中的。
+                    const missing = release !== null && size === undefined;
+                    return (
+                      <motion.div key={item.os} {...reveal(on, i)}>
+                        <Tooltip.Root>
+                          <Tooltip.Trigger asChild>
+                            <a
+                              className="download"
+                              href={
+                                missing
+                                  ? RELEASES_PAGE
+                                  : latestAssetUrl(item.asset)
+                              }
+                            >
+                              <span className="download-os">
+                                {item.os}
+                                <span className="download-flags">
+                                  {item.os === platform && (
+                                    <em className="download-you">你的系统</em>
+                                  )}
+                                  <Arrow diagonal />
+                                </span>
+                              </span>
+                              <strong>{item.asset}</strong>
+                              <span className="download-note">{item.note}</span>
+                              <span className="download-meta">
+                                {missing
+                                  ? "这个版本里还没有打包，先去 Releases 看看"
+                                  : size === undefined
+                                    ? item.hint
+                                    : `${formatSize(size)} · 直接下载`}
+                              </span>
+                            </a>
+                          </Tooltip.Trigger>
+                          <Tooltip.Portal>
+                            <Tooltip.Content className="tooltip" sideOffset={8}>
+                              {missing
+                                ? "打开全部版本列表，选一个包含该产物的版本"
+                                : item.hint}
+                              <Tooltip.Arrow className="tooltip-arrow" />
+                            </Tooltip.Content>
+                          </Tooltip.Portal>
+                        </Tooltip.Root>
+                        {item.others && (
+                          <div className="download-alts">
+                            {item.others.map((other) => (
+                              <a
+                                className="download-alt"
+                                key={other.asset}
+                                href={latestAssetUrl(other.asset)}
+                              >
+                                {other.label}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 <motion.div className="fromsource" {...reveal(on, 3)}>
                   <h3>或者从源码跑</h3>

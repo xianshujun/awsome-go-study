@@ -775,14 +775,17 @@ main {
 }
 .downloads > div {
   border-right: 1px solid #454c40;
+  /* 卡片下方可能有次链接（免安装版、arm64 版），整格用纵向布局撑高 */
+  display: flex;
+  flex-direction: column;
 }
 .downloads > div:last-child {
   border: 0;
 }
 .download {
   display: block;
-  height: 100%;
-  padding: 26px 20px;
+  flex: 1 1 auto;
+  padding: 26px 20px 18px;
   transition: background 0.3s;
 }
 .download:hover {
@@ -798,6 +801,20 @@ main {
   width: 18px;
   height: 18px;
 }
+.download-flags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.download-you {
+  font: 10px var(--mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: #dfe6d5;
+  border: 1px solid #5c6650;
+  border-radius: 999px;
+  padding: 3px 8px;
+}
 .download strong {
   display: block;
   overflow-wrap: anywhere;
@@ -810,6 +827,34 @@ main {
   font-size: 11px;
   line-height: 1.9;
   color: #b0b7a8;
+}
+.download-meta {
+  display: block;
+  margin-top: 12px;
+  font: 10px/1.8 var(--mono);
+  color: #8b9480;
+}
+.download-alts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px 24px;
+}
+.download-alt {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #b1c2a1;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.download-alt:hover {
+  color: #dfe6d5;
+}
+.downloads-version {
+  margin: -20px 0 22px;
+  font: 10px var(--mono);
+  letter-spacing: 0.08em;
+  color: #8b9480;
 }
 .tooltip {
   z-index: 140;
@@ -1155,13 +1200,16 @@ main {
     border-bottom: 1px solid #454c40;
   }
   .download {
-    padding: 24px 0;
+    padding: 24px 0 16px;
   }
   .download strong {
     margin: 12px 0 8px;
   }
   .download-note {
     font-size: 12px;
+  }
+  .download-alts {
+    padding: 0 0 22px;
   }
   .fromsource pre {
     font-size: 10px;
