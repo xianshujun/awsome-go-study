@@ -247,9 +247,9 @@ jobs:
     # 这样两边发布的东西一定一致，也能单独补发某个历史版本。
     needs: [desktop, windows-installer, android]
     runs-on: ubuntu-latest
-    # 从 GitHub 运行器往 Gitee 传大文件可能被限速（实测过 6 KB/s），
-    # 脚本里有速率兜底会先报错退出，这里再给任务封顶，避免挂几个小时。
-    timeout-minutes: 40
+    # 从 GitHub 运行器往 Gitee 传大文件会被限速（实测 6 MB 要 4 分钟，67 MB 的 APK 要十几分钟），
+    # 所以上限给得宽松；真正卡死的情况由脚本里的速率兜底（低于 10 KB/s 持续 60 秒）拦下。
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
