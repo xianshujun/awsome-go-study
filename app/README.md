@@ -309,6 +309,8 @@ go -C app run ./cmd/lessoncheck -embedded                 # 全量课程校验
 go -C app run ./cmd/lessoncheck -file backend/courses/grammar.json   # 单文件校验
 bash app/scripts/build-windows.sh
 bash app/scripts/build-windows-installer.sh --version 0.0.0   # 需在 Windows 上跑，且已装 Inno Setup 6.3+
+GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo xianshujun/gostudy-release --tag v0.5.0 --dry-run
+GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo xianshujun/gostudy-release --tag v0.5.0 --dir app/release
 ```
 
 后端验证全部 43 个练习的参考解答在真实解释器中通过、starter 一律不能直接通过，以及错误代码、超时与并发收尾、本机鉴权、非法来源、进度持久化、完成证明、模型请求和密钥隐藏。前端交互测试验证学习完成、失败重试、代码变更后重新校验、AI 配置、笔记和即时切页保存。模型接口测试使用本机模拟服务，不代表已验证用户的付费模型账号。

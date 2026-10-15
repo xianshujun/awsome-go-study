@@ -63,3 +63,17 @@ Release 的对应文件，所以**发布新版本之后页面不用改**，点�
 新增平台或在 Release 里改了资源名，改 `downloads` 数组即可——资源名要和 `.github/workflows/release.yml`
 上传的名字一致（`GoStudy-Setup.exe`、`GoStudy.exe`、`GoStudy-android-release.apk`、`GoStudy-linux-amd64`、
 `GoStudy-linux-arm64`）。
+
+### 国内镜像（Gitee）
+
+`GITEE_REPO` 常量指向 Gitee 上的镜像仓库（默认 `xianshujun/gostudy-release`，与 workflow 里的
+`vars.GITEE_REPO` 保持一致；留空就整块关掉）。链接地址由 `giteeAssetUrl()` 拼成
+`https://gitee.com/<仓库>/releases/download/latest/<资源名>`，同样是自动指向最新一次发布。
+
+页面会另外读一次 Gitee 的发行版列表接口（匿名可用、允许跨域）来确认镜像内容，满足两个条件才显示链接：
+
+1. 镜像的最新发行版里有这个文件；
+2. 镜像的 tag 和 GitHub 最新版本一致——镜像落后一个版本时宁可不给链接，也不让用户下到旧版本。
+
+这个接口同样按 30 分钟缓存。访客的时区/语言像国内用户时（`prefersChinaMirror()`），镜像链接会排在
+其他次链接前面并带一个「更快」标签。

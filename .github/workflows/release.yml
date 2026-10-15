@@ -1,12 +1,18 @@
 name: Release
 
-# 打 tag（v*）时自动构建三平台产物 + Windows 安装包，并上传到对应的 Release；
+# 打 tag（v*）时自动构建三平台产物 + Windows 安装包，并上传到对应的 Release，
+# 最后把同一批产物镜像到 Gitee（需要配置 GITEE_TOKEN，没配就跳过这一步）；
 # 也可以在 Actions 页面手动触发一次，用于验证流水线本身。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      gitee_tag:
+        description: '只补发 Gitee 镜像：填一个已发布的 tag（如 v0.4.0）；留空则走完整流程'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -234,3 +240,56 @@ jobs:
             app/release/GoStudy-release.apk
             app/release/GoStudy-release-unsigned.apk
           if-no-files-found: ignore
+
+  gitee-mirror:
+    name: Gitee 国内镜像
+    # 镜像的内容直接取自 GitHub Release，而不是各任务的构建产物：
+    # 这样两边发布的东西一定一致，也能单独补发某个历史版本。
+    needs: [desktop, windows-installer, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 确定 tag 并检查令牌
+        id: setup
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 手动触发时可以填 gitee_tag 补发某个已发布的版本
+          tag="${{ inputs.gitee_tag || github.ref_name }}"
+          if [[ -z "${GITEE_TOKEN}" ]]; then
+            echo "::notice ::未配置 GITEE_TOKEN，跳过 Gitee 镜像；开通步骤见 README 的「国内镜像（Gitee）」。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "${tag}" =~ ^v[0-9] ]]; then
+            echo "::notice ::${tag} 不是版本 tag，跳过 Gitee 镜像。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: 取回 GitHub Release 上的产物
+        if: steps.setup.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # 不带 --pattern：Release 上的资源本来就是这几个，另有 --archive 才会带源码压缩包
+          gh release download "${{ steps.setup.outputs.tag }}" --dir dist --clobber
+          ls -la dist
+
+      - name: 发布到 Gitee
+        if: steps.setup.outputs.skip == 'false'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 仓库名默认 gostudy-release；想换名字就改仓库变量 GITEE_REPO（同时改落地页里的常量）
+          bash app/scripts/publish-gitee-release.sh \
+            --repo "${{ vars.GITEE_REPO || 'xianshujun/gostudy-release' }}" \
+            --tag "${{ steps.setup.outputs.tag }}" \
+            --dir dist

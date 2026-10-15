@@ -850,6 +850,22 @@ main {
 .download-alt:hover {
   color: #dfe6d5;
 }
+/* 国内镜像：和普通次链接区分开，带一个小标签说明它能解决什么问题 */
+.download-alt-mirror {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.download-alt-tag {
+  font: 10px var(--mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: #dfe6d5;
+  border: 1px solid #5c6650;
+  border-radius: 999px;
+  padding: 2px 7px;
+  text-decoration: none;
+}
 .downloads-version {
   margin: -20px 0 22px;
   font: 10px var(--mono);

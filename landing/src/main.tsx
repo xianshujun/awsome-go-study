@@ -465,6 +465,14 @@ const REPO = "xianshujun/awsome-go-study";
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 const latestAssetUrl = (name: string) =>
   `${RELEASES_PAGE}/latest/download/${name}`;
+/**
+ * 国内镜像：同一次发布的产物也传一份到 Gitee，国内下载走 gitee.com。
+ * 留空字符串就整块关掉。仓库名要和 `.github/workflows/release.yml` 里的
+ * `vars.GITEE_REPO`（默认 xianshujun/gostudy-release）保持一致。
+ */
+const GITEE_REPO = "xianshujun/gostudy-release";
+const giteeAssetUrl = (name: string) =>
+  `https://gitee.com/${GITEE_REPO}/releases/download/latest/${name}`;
 const STAR_CACHE_KEY = "gostudy-stars";
 const STAR_CACHE_TTL = 10 * 60 * 1000;
 
@@ -605,6 +613,77 @@ function formatSize(bytes: number) {
     : `${Math.round(bytes / 1024)} KB`;
 }
 
+/**
+ * Gitee 镜像里有哪些文件。
+ *
+ * 只在确认「最新一次镜像发行版里确实有这个产物」时才显示镜像链接：
+ * 镜像没同步到最新版本、或者接口读不到，就干脆不显示，免得给出一个点进去 404 的地址。
+ * 这个接口匿名可用且允许跨域，同样按 30 分钟缓存。
+ */
+type MirrorInfo = {
+  tag: string;
+  names: string[];
+};
+
+const MIRROR_CACHE_KEY = "gostudy-mirror";
+const MIRROR_CACHE_TTL = 30 * 60 * 1000;
+
+let mirrorRequest: Promise<MirrorInfo | null> | undefined;
+
+function loadMirror(): Promise<MirrorInfo | null> {
+  if (!GITEE_REPO) return Promise.resolve(null);
+  mirrorRequest ??= (async () => {
+    try {
+      const cached = sessionStorage.getItem(MIRROR_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as { value?: MirrorInfo; at?: number };
+        if (parsed.value && Date.now() - (parsed.at ?? 0) < MIRROR_CACHE_TTL) {
+          return parsed.value;
+        }
+      }
+    } catch {
+      // 隐私模式下 sessionStorage 不可用，直接回源。
+    }
+    try {
+      const response = await fetch(
+        `https://gitee.com/api/v5/repos/${GITEE_REPO}/releases?per_page=1&direction=desc`,
+        { signal: AbortSignal.timeout(6000) },
+      );
+      if (!response.ok) return null;
+      const data = (await response.json()) as {
+        tag_name?: string;
+        assets?: { name?: string }[];
+      }[];
+      const latest = Array.isArray(data) ? data[0] : undefined;
+      if (!latest?.tag_name) return null;
+      const value: MirrorInfo = {
+        tag: latest.tag_name,
+        names: (latest.assets ?? [])
+          .map((asset) => asset.name ?? "")
+          .filter(Boolean),
+      };
+      try {
+        sessionStorage.setItem(
+          MIRROR_CACHE_KEY,
+          JSON.stringify({ value, at: Date.now() }),
+        );
+      } catch {
+        // 存不下只影响下次访问。
+      }
+      return value;
+    } catch {
+      return null;
+    }
+  })();
+  return mirrorRequest;
+}
+
+/** 访客大概率在中国大陆时，把镜像链接排到前面并标一句「更快」。 */
+function prefersChinaMirror(language: string, timeZone: string) {
+  if (/^Asia\/(Shanghai|Urumqi|Chongqing|Harbin)$/.test(timeZone)) return true;
+  return /^zh/i.test(language) && /^(Asia|PRC)\//.test(timeZone);
+}
+
 /** 判断访客自己的系统，用来在对应卡片上标一句「你的系统」。 */
 function detectPlatform(agent: string): string | null {
   if (/Android/i.test(agent)) return "Android";
@@ -704,11 +783,21 @@ function Page() {
   const page = useRef<HTMLDivElement>(null);
   // 下载区展示的版本信息；接口不通就退回卡片上的静态文案，链接照样可用。
   const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [platform] = useState(() => detectPlatform(navigator.userAgent));
+  const [chinaMirror] = useState(() =>
+    prefersChinaMirror(
+      navigator.language,
+      Intl.DateTimeFormat().resolvedOptions().timeZone ?? "",
+    ),
+  );
   useEffect(() => {
     let alive = true;
     void loadRelease().then((value) => {
       if (alive) setRelease(value);
+    });
+    void loadMirror().then((value) => {
+      if (alive) setMirror(value);
     });
     return () => {
       alive = false;
@@ -1013,6 +1102,36 @@ function Page() {
                     // 只有「确实读到了最新版本、但里面没有这个产物」才改跳 Releases；
                     // 读不到接口时按老办法给直链，latest/download 本来就是猜得中的。
                     const missing = release !== null && size === undefined;
+                    // 镜像链接严格校验：镜像的最新发行版里有这个文件，且版本号对得上
+                    const mirrored = Boolean(
+                      mirror &&
+                        mirror.names.includes(item.asset) &&
+                        (!release || release.tag === mirror.tag),
+                    );
+                    const mirrorLink = mirrored ? (
+                      <a
+                        className="download-alt download-alt-mirror"
+                        href={giteeAssetUrl(item.asset)}
+                      >
+                        国内镜像（Gitee）
+                        {chinaMirror && <em className="download-alt-tag">更快</em>}
+                      </a>
+                    ) : null;
+                    const altLinks = (
+                      <>
+                        {chinaMirror && mirrorLink}
+                        {item.others?.map((other) => (
+                          <a
+                            className="download-alt"
+                            key={other.asset}
+                            href={latestAssetUrl(other.asset)}
+                          >
+                            {other.label}
+                          </a>
+                        ))}
+                        {!chinaMirror && mirrorLink}
+                      </>
+                    );
                     return (
                       <motion.div key={item.os} {...reveal(on, i)}>
                         <Tooltip.Root>
@@ -1054,18 +1173,8 @@ function Page() {
                             </Tooltip.Content>
                           </Tooltip.Portal>
                         </Tooltip.Root>
-                        {item.others && (
-                          <div className="download-alts">
-                            {item.others.map((other) => (
-                              <a
-                                className="download-alt"
-                                key={other.asset}
-                                href={latestAssetUrl(other.asset)}
-                              >
-                                {other.label}
-                              </a>
-                            ))}
-                          </div>
+                        {(item.others || mirrored) && (
+                          <div className="download-alts">{altLinks}</div>
                         )}
                       </motion.div>
                     );
