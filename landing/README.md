@@ -42,4 +42,24 @@ cp ../app/frontend/public/fonts/*.woff2 ../app/frontend/public/fonts/LICENSE-*.t
 
 - **零渐变**：与应用同一套设计令牌（近中性底色、单一强调色、代码区墨色表面）。
 - **动效不能把内容藏住**：`rise()` / `reveal()` 在「减少动效」时直接返回最终状态，元素首帧即最终状态；页面打开期间切换系统偏好也立即复位。
-- 下载入口统一指向 `releases/latest`，发新版本后页面自动生效。
+- 下载入口统一指向 `releases/latest/download/<资源名>`，发新版本后页面自动生效。
+
+## 下载区怎么工作
+
+`src/main.tsx` 里的 `downloads` 数组只存平台、Release 资源名和文案，链接由 `latestAssetUrl()` 拼成
+`https://github.com/xianshujun/awsome-go-study/releases/latest/download/<资源名>`：这个地址会 302 到最新一次
+Release 的对应文件，所以**发布新版本之后页面不用改**，点一下就开始下载，不再跳到 Releases 页面。
+
+页面另外读一次 `releases/latest` 接口，把版本号、发布日期和文件大小填进卡片（`loadRelease()`）：
+
+| 情形 | 页面表现 |
+|---|---|
+| 读到数据 | 卡片显示「6.5 MB · 直接下载」，标题下方出现「当前最新版本 vX.Y.Z · 日期」 |
+| 读不到（限流 / 断网 / 还没有 Release） | 退回卡片上的静态文案，直链照旧可用 |
+| 读到了、但该版本没有这个产物 | 这张卡片改跳 Releases 列表并说明原因，不会出现点进去 404 的按钮 |
+
+结果按 30 分钟缓存在 `sessionStorage`，和 Star 数一样是为了省下未认证 GitHub API 的 60 次/小时配额。
+
+新增平台或在 Release 里改了资源名，改 `downloads` 数组即可——资源名要和 `.github/workflows/release.yml`
+上传的名字一致（`GoStudy-Setup.exe`、`GoStudy.exe`、`GoStudy-android-release.apk`、`GoStudy-linux-amd64`、
+`GoStudy-linux-arm64`）。

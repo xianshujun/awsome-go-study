@@ -74,10 +74,13 @@
 
 **获取方式**
 
-- **Windows**：到 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 下载 `GoStudy.exe`，双击即用（也可从源码运行 `bash app/scripts/build-windows.sh` 自行构建）。
+- **Windows（安装版）**：下载 `GoStudy-Setup.exe` 双击安装——可以自己选装在哪个目录，装完自动创建桌面与开始菜单快捷方式，卸载走系统「应用和功能」。
+- **Windows（免安装）**：下载 `GoStudy.exe`，双击即用（也可从源码运行 `bash app/scripts/build-windows.sh` 自行构建）。
 - **Android**：下载 `GoStudy-android-release.apk`（Android 8.0+，正式签名，可直接安装），或运行 `bash app/scripts/build-android.sh release` 自行构建并签名。
 - **Linux**：下载 `GoStudy-linux-amd64` / `GoStudy-linux-arm64`，`chmod +x` 后直接运行，或执行 `bash app/scripts/build-linux.sh`。
 - **从源码运行**：[应用说明](app/README.md) 的「2.1 本机启动」给出完整命令。
+
+以上产物都在 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 里；[落地页](https://xianshujun.github.io/awsome-go-study/)的下载按钮直接指向最新版本的产物文件，点一下就开始下载，不必再进 Release 页面挑文件。各平台产物的细节与构建方式见[应用说明](app/README.md)的「2.2 Windows 应用」与「2.3 Android 应用」。
 
 Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签名证书，非应用商店分发），内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 65 MB；安装时需要允许「未知来源」。签名密钥由维护者保管，一旦丢失将导致后续版本无法覆盖安装，请勿提交到仓库。
 开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
