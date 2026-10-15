@@ -8,7 +8,7 @@
 #
 # 用法（需要 Gitee 私人令牌，作用域勾 projects）：
 #   GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh \
-#       --repo xianshujun/gostudy-release --tag v0.5.0 --dir app/release
+#       --repo pang-xianshu/gostudy-release --tag v0.5.0 --dir app/release
 #
 # 幂等：重复跑同一个 tag 会复用已有发行版，同名附件先删后传，所以失败可以直接重试。
 set -euo pipefail

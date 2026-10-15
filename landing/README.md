@@ -66,7 +66,7 @@ Release 的对应文件，所以**发布新版本之后页面不用改**，点�
 
 ### 国内镜像（Gitee）
 
-`GITEE_REPO` 常量指向 Gitee 上的镜像仓库（默认 `xianshujun/gostudy-release`，与 workflow 里的
+`GITEE_REPO` 常量指向 Gitee 上的镜像仓库（默认 `pang-xianshu/gostudy-release`，与 workflow 里的
 `vars.GITEE_REPO` 保持一致；留空就整块关掉）。链接地址由 `giteeAssetUrl()` 拼成
 `https://gitee.com/<仓库>/releases/download/latest/<资源名>`，同样是自动指向最新一次发布。
 

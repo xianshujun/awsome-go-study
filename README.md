@@ -86,7 +86,7 @@
 
 GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。落地页在确认「镜像版本和最新版本一致」之后，会在每张下载卡片上多给一个 **国内镜像（Gitee）** 链接（国内访客会排在前面并标「更快」）。
 
-- 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/xianshujun/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
+- 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/pang-xianshu/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
 - 同步由 `.github/workflows/release.yml` 的 `gitee-mirror` 任务在每次发布后自动执行，内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的，任务失败直接重跑即可。
 - **没配置令牌时这一步自动跳过**，流水线照常是绿的。
 
@@ -95,14 +95,14 @@ GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有�
 1. 注册 Gitee 账号；如提示需要实名认证，按提示完成（Gitee 的部分功能对实名有要求）。
 2. 新建一个公开仓库专门放产物，例如 `gostudy-release`，并初始化 README——创建发行版要指定分支，所以仓库里得先有分支。
 3. 生成私人令牌：Gitee → 头像 → 设置 → 私人令牌 → 生成新令牌，勾选 `projects` 权限。
-4. 在 GitHub 仓库 → Settings → Secrets and variables → Actions 里加 secret `GITEE_TOKEN`（值为上一步的令牌）。想用别的仓库名，再在同一页的 Variables 里加 `GITEE_REPO`（默认 `xianshujun/gostudy-release`），同时改 `landing/src/main.tsx` 里的 `GITEE_REPO` 常量。
+4. 在 GitHub 仓库 → Settings → Secrets and variables → Actions 里加 secret `GITEE_TOKEN`（值为上一步的令牌）。想用别的仓库名，再在同一页的 Variables 里加 `GITEE_REPO`（默认 `pang-xianshu/gostudy-release`），同时改 `landing/src/main.tsx` 里的 `GITEE_REPO` 常量。
 5. 补发已发布的版本：Actions → Release → Run workflow，`gitee_tag` 填 `v0.4.0`；之后每次推 `v*` tag 都会自动镜像。
 
 本机手动镜像（需要令牌）：
 
 ```bash
 GITEE_TOKEN=你的令牌 bash app/scripts/publish-gitee-release.sh \
-    --repo xianshujun/gostudy-release --tag v0.5.0 --dir app/release
+    --repo pang-xianshu/gostudy-release --tag v0.5.0 --dir app/release
 ```
 
 > ⚠️ 我们的包最大是 APK 约 65 MB，在 Gitee 免费仓库的附件限制内；如果以后有更大的产物被拒，日志里会写明原因，也可以只镜像桌面端两个文件。

@@ -468,9 +468,9 @@ const latestAssetUrl = (name: string) =>
 /**
  * 国内镜像：同一次发布的产物也传一份到 Gitee，国内下载走 gitee.com。
  * 留空字符串就整块关掉。仓库名要和 `.github/workflows/release.yml` 里的
- * `vars.GITEE_REPO`（默认 xianshujun/gostudy-release）保持一致。
+ * `vars.GITEE_REPO`（默认 pang-xianshu/gostudy-release）保持一致。
  */
-const GITEE_REPO = "xianshujun/gostudy-release";
+const GITEE_REPO = "pang-xianshu/gostudy-release";
 const giteeAssetUrl = (name: string) =>
   `https://gitee.com/${GITEE_REPO}/releases/download/latest/${name}`;
 const STAR_CACHE_KEY = "gostudy-stars";

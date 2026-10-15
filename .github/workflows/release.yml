@@ -290,6 +290,6 @@ jobs:
           set -euo pipefail
           # 仓库名默认 gostudy-release；想换名字就改仓库变量 GITEE_REPO（同时改落地页里的常量）
           bash app/scripts/publish-gitee-release.sh \
-            --repo "${{ vars.GITEE_REPO || 'xianshujun/gostudy-release' }}" \
+            --repo "${{ vars.GITEE_REPO || 'pang-xianshu/gostudy-release' }}" \
             --tag "${{ steps.setup.outputs.tag }}" \
             --dir dist
