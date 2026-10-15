@@ -1,6 +1,6 @@
 name: Release
 
-# 打 tag（v*）时自动构建三平台产物并上传到对应的 Release；
+# 打 tag（v*）时自动构建三平台产物 + Windows 安装包，并上传到对应的 Release；
 # 也可以在 Actions 页面手动触发一次，用于验证流水线本身。
 on:
   push:
@@ -65,6 +65,84 @@ jobs:
             app/release/GoStudy.exe
             app/release/GoStudy-linux-amd64
             app/release/GoStudy-linux-arm64
+
+  windows-installer:
+    name: Windows 安装包
+    # Inno Setup 只有 Windows 版，所以这里单独起一个 Windows 运行器；
+    # 可执行文件直接取 desktop 任务的产物，保证安装包里的程序和 Release 里那个完全一致。
+    needs: desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 取回桌面端产物
+        uses: actions/download-artifact@v7
+        with:
+          name: desktop-builds
+          path: app/release
+
+      - name: 准备 Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "运行器上没有 Inno Setup，现装一个。"
+            choco install innosetup -y --no-progress
+          }
+          # 简体中文语言文件从 Inno Setup 6.5 起随编译器分发，缺了说明版本太老。
+          $isl = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages\ChineseSimplified.isl"
+          if (-not (Test-Path $isl)) {
+            Write-Host "Inno Setup 版本偏旧，升级到最新版以获得简体中文安装界面。"
+            choco upgrade innosetup -y --no-progress
+          }
+          if (-not (Test-Path $iscc) -or -not (Test-Path $isl)) {
+            throw "Inno Setup 准备失败：ISCC=$iscc 中文语言文件=$isl"
+          }
+          Write-Host "ISCC：$iscc"
+          Write-Host "中文语言文件：$isl"
+
+      - name: 确定版本号
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${tag}" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+          else
+            # 手动触发时没有 tag，用占位版本，只验证流水线能跑通。
+            echo "value=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 编译安装包
+        shell: bash
+        env:
+          ISCC: C:/Program Files (x86)/Inno Setup 6/ISCC.exe
+        run: bash app/scripts/build-windows-installer.sh --version "${{ steps.version.outputs.value }}"
+
+      - name: 上传到 Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" != "push" || -z "${tag}" ]]; then
+            echo "非 tag 触发，跳过 Release 上传，仅保留构建产物。"
+            exit 0
+          fi
+          # 安装包与 desktop 任务的资源名保持一致，落地页按名字直链下载。
+          # desktop 与 android 任务并行，理论上这个任务总在它们之后；这里仍然先确认 Release 存在。
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "GoStudy $tag" --generate-notes \
+            || echo "Release 已由并行任务创建，继续上传。"
+          gh release upload "$tag" app/release/GoStudy-Setup.exe --clobber
+
+      - name: 保存为工作流产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: app/release/GoStudy-Setup.exe
 
   android:
     name: Android APK
@@ -147,6 +225,10 @@ jobs:
           fi
           # 上传用与 README 一致的资源名，避免下载说明与实际文件名不符。
           cp -- "$apk" "app/release/$asset"
+          # desktop 任务也在写同一个 Release：谁先跑完谁负责建，建失败说明对方已建好。
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "GoStudy $tag" --generate-notes \
+            || echo "Release 已由并行任务创建，继续上传。"
           gh release upload "$tag" "app/release/$asset" --clobber
 
       - name: 保存为工作流产物

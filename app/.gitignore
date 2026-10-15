@@ -19,3 +19,6 @@
 *.jks
 .env
 .env.local
+
+# 图标生成脚本的调试图输出
+/installer/windows/gostudy.ico.png/
