@@ -81,30 +81,22 @@ require_command python3
 request() {
     local method="$1" path="$2"
     shift 2
-    curl -sS --fail-with-body --retry 3 --retry-delay 5 \
+    curl -sS --fail-with-body --retry 3 --retry-delay 5 --max-time 60 \
         -X "$method" "$API$path" -H "Authorization: token $TOKEN" "$@"
+}
+
+# 上传单独一套参数：文件最大 60 多 MB，耗时不可控（实测从 GitHub 运行器到 Gitee 只有几 KB/s），
+# 所以给足总时长，同时盯着速率——低于 10 KB/s 持续 60 秒就判定卡死并报错退出，不干耗。
+upload() {
+    local path="$1" file="$2"
+    curl -sS --fail-with-body --retry 2 --retry-delay 10 --max-time 3600 \
+        --speed-limit 10240 --speed-time 60 \
+        -X POST "$API$path" -H "Authorization: token $TOKEN" -F "file=@$file"
 }
 
 # 从 JSON 里取 release 的 id
 release_id_of() {
     python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["id"] if isinstance(d, dict) and "id" in d else "")'
-}
-
-# 从附件列表里取指定文件名的附件 id（Gitee 不同接口字段名不一致，这里都认）
-attach_id_of() {
-    python3 -c '
-import json, os, sys
-name = sys.argv[1]
-data = json.load(sys.stdin) or []
-def title(item):
-    for key in ("name", "title"):
-        value = item.get(key)
-        if isinstance(value, str) and value:
-            return value
-    url = item.get("download_url") or item.get("browser_download_url") or ""
-    return os.path.basename(url)
-print(next((str(item.get("id")) for item in data if title(item) == name), ""))
-' "$1"
 }
 
 printf 'Gitee 镜像：%s @ %s（%d 个文件）\n' "$REPO" "$TAG" "${#FILES[@]}"
@@ -146,13 +138,30 @@ for file in "${FILES[@]}"; do
         continue
     fi
     list="$(request GET "/repos/$REPO/releases/$release_id/attach_files?per_page=100" 2>/dev/null || true)"
-    old_id="$(printf '%s' "$list" | attach_id_of "$name" 2>/dev/null || true)"
-    if [[ -n "$old_id" ]]; then
-        printf '删除同名旧附件 %s（id=%s）\n' "$name" "$old_id"
-        request DELETE "/repos/$REPO/releases/$release_id/attach_files/$old_id" >/dev/null
-    fi
+    # 先记下同名旧附件的 id，等新文件传成功再删——反过来的话，上传失败会让镜像少一个文件。
+    old_ids="$(printf '%s' "$list" | python3 -c '
+import json, os, sys
+name = sys.argv[1]
+data = json.load(sys.stdin) or []
+def title(item):
+    for key in ("name", "title"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            return value
+    url = item.get("download_url") or item.get("browser_download_url") or ""
+    return os.path.basename(url)
+print(" ".join(str(i["id"]) for i in data if title(i) == name))
+' "$name" 2>/dev/null || true)"
     printf '上传 %s（%s）…\n' "$name" "$size"
-    request POST "/repos/$REPO/releases/$release_id/attach_files" -F "file=@$file" >/dev/null
+    started="$SECONDS"
+    if ! upload "/repos/$REPO/releases/$release_id/attach_files" "$file" >/dev/null; then
+        fail "上传 $name 失败或长时间无进展（Gitee 对境外 IP 的上传可能被限速；可本机重跑本脚本，参数一样）"
+    fi
+    printf '  %s 上传完成，用时 %ds\n' "$name" "$((SECONDS - started))"
+    for old_id in $old_ids; do
+        printf '  删除同名旧附件 %s（id=%s）\n' "$name" "$old_id"
+        request DELETE "/repos/$REPO/releases/$release_id/attach_files/$old_id" >/dev/null
+    done
     uploaded=$((uploaded + 1))
 done
 

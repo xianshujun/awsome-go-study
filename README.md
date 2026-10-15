@@ -87,7 +87,8 @@
 GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。落地页在确认「镜像版本和最新版本一致」之后，会在每张下载卡片上多给一个 **国内镜像（Gitee）** 链接（国内访客会排在前面并标「更快」）。
 
 - 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/pang-xianshu/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
-- 同步由 `.github/workflows/release.yml` 的 `gitee-mirror` 任务在每次发布后自动执行，内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的，任务失败直接重跑即可。
+- 同步由 `.github/workflows/release.yml` 的 `gitee-mirror` 任务在每次发布后自动执行，内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的（同名文件先传新的、成功后再删旧的），任务失败直接重跑即可。
+- ⚠️ 实测从 GitHub 运行器往 Gitee 传大文件会被限速（几十 KB/s，67 MB 的 APK 可能十几分钟都传不完）。脚本会在「低于 10 KB/s 持续 60 秒」时直接报错退出、任务封顶 40 分钟，不会干挂；遇到这种情况用下面那条本机命令补传一次即可（本机传 Gitee 实测 1.6 MB/s）。
 - **没配置令牌时这一步自动跳过**，流水线照常是绿的。
 
 一次性开通步骤：
