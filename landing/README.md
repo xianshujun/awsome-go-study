@@ -64,16 +64,22 @@ Release 的对应文件，所以**发布新版本之后页面不用改**，点�
 上传的名字一致（`GoStudy-Setup.exe`、`GoStudy.exe`、`GoStudy-android-release.apk`、`GoStudy-linux-amd64`、
 `GoStudy-linux-arm64`）。
 
-### 国内镜像（Gitee）
+### 下载源由页面自动选（国内走 Gitee）
 
 `GITEE_REPO` 常量指向 Gitee 上的镜像仓库（默认 `pang-xianshu/gostudy-release`，与 workflow 里的
-`vars.GITEE_REPO` 保持一致；留空就整块关掉）。链接地址由 `giteeAssetUrl()` 拼成
-`https://gitee.com/<仓库>/releases/download/latest/<资源名>`，同样是自动指向最新一次发布。
+`vars.GITEE_REPO` 保持一致；留空就完全不走镜像）。**页面上不出现"国内镜像"这类字眼，也不给用户选择**，
+`assetUrl()` 按下面的规则逐文件决定链接：
 
-页面会另外读一次 Gitee 的发行版列表接口（匿名可用、允许跨域）来确认镜像内容，满足两个条件才显示链接：
+| 访客 | 镜像状态 | 走哪里 |
+|---|---|---|
+| 国内（时区 `Asia/Shanghai` 等，或 `zh*` + 亚洲时区） | 还没查完 | Gitee（先按镜像走，查完再纠正） |
+| 国内 | 有、且 tag 与 GitHub 最新版本一致、该文件在 | Gitee |
+| 国内 | 镜像落后一个版本 / 少这个文件 / 接口读不到 | GitHub |
+| 海外 | 任何情况 | GitHub |
 
-1. 镜像的最新发行版里有这个文件；
-2. 镜像的 tag 和 GitHub 最新版本一致——镜像落后一个版本时宁可不给链接，也不让用户下到旧版本。
+镜像数据来自 `loadMirror()`：读 Gitee 的发行版列表接口（匿名可用、允许跨域），按 30 分钟缓存在
+`sessionStorage`。判断条件写成"宁可回 GitHub"——镜像不可信时绝不把用户送过去下到旧版本或 404。
 
-这个接口同样按 30 分钟缓存。访客的时区/语言像国内用户时（`prefersChinaMirror()`），镜像链接会排在
-其他次链接前面并带一个「更快」标签。
+截图核对用的假接口脚本在 `/tmp/shot/mock-both.py` + `gl-source-check.mjs`（本机临时文件，不在仓库里），
+覆盖「国内+镜像正常 / 国内+镜像落后 / 国内+缺文件 / 海外+正常 / 国内+接口不通」五种情况。
+

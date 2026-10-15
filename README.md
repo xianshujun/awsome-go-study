@@ -84,7 +84,7 @@
 
 **国内镜像（Gitee）**
 
-GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。落地页在确认「镜像版本和最新版本一致」之后，会在每张下载卡片上多给一个 **国内镜像（Gitee）** 链接（国内访客会排在前面并标「更快」）。
+GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。**落地页不让你选**：它自己看访客的位置决定下载源——国内访客默认走 Gitee，海外访客走 GitHub，镜像版本对不上、少了文件或读不到时自动回落 GitHub；卡片上只有「直接下载」，不会出现两个源让你挑。
 
 - 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/pang-xianshu/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
 - 同步由 `.github/workflows/release.yml` 的 `gitee-mirror` 任务在每次发布后自动执行，内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的（同名文件先传新的、成功后再删旧的），任务失败直接重跑即可。

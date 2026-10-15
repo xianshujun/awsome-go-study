@@ -616,9 +616,9 @@ function formatSize(bytes: number) {
 /**
  * Gitee 镜像里有哪些文件。
  *
- * 只在确认「最新一次镜像发行版里确实有这个产物」时才显示镜像链接：
- * 镜像没同步到最新版本、或者接口读不到，就干脆不显示，免得给出一个点进去 404 的地址。
- * 这个接口匿名可用且允许跨域，同样按 30 分钟缓存。
+ * 用来决定「这次下载走哪个源」：国内访客默认走 Gitee，但镜像要满足两个条件才会真的用——
+ * 最新一次镜像发行版里有这个文件，且它的 tag 与 GitHub 最新版本一致。镜像落后一个版本、
+ * 少了某个文件、或者接口根本读不到，这个文件就自动回 GitHub，用户不需要知道也不需要选。
  */
 type MirrorInfo = {
   tag: string;
@@ -678,7 +678,7 @@ function loadMirror(): Promise<MirrorInfo | null> {
   return mirrorRequest;
 }
 
-/** 访客大概率在中国大陆时，把镜像链接排到前面并标一句「更快」。 */
+/** 访客是不是国内（时区或语言判断），用来决定默认下载源：国内走 Gitee 镜像，海外走 GitHub。 */
 function prefersChinaMirror(language: string, timeZone: string) {
   if (/^Asia\/(Shanghai|Urumqi|Chongqing|Harbin)$/.test(timeZone)) return true;
   return /^zh/i.test(language) && /^(Asia|PRC)\//.test(timeZone);
@@ -784,8 +784,9 @@ function Page() {
   // 下载区展示的版本信息；接口不通就退回卡片上的静态文案，链接照样可用。
   const [release, setRelease] = useState<ReleaseInfo | null>(null);
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
+  const [mirrorChecked, setMirrorChecked] = useState(false);
   const [platform] = useState(() => detectPlatform(navigator.userAgent));
-  const [chinaMirror] = useState(() =>
+  const [china] = useState(() =>
     prefersChinaMirror(
       navigator.language,
       Intl.DateTimeFormat().resolvedOptions().timeZone ?? "",
@@ -797,12 +798,28 @@ function Page() {
       if (alive) setRelease(value);
     });
     void loadMirror().then((value) => {
-      if (alive) setMirror(value);
+      if (!alive) return;
+      setMirror(value);
+      setMirrorChecked(true);
     });
     return () => {
       alive = false;
     };
   }, []);
+
+  /**
+   * 这个文件走哪个源：国内访客默认 Gitee，但要有依据才敢用。
+   * 还没查完就先用镜像（等查完再纠正）；查完发现镜像读不到、版本对不上或没有这个文件，就回 GitHub。
+   */
+  const assetUrl = (name: string) => {
+    if (!GITEE_REPO || !china) return latestAssetUrl(name);
+    if (mirrorChecked) {
+      if (!mirror) return latestAssetUrl(name);
+      if (release && mirror.tag !== release.tag) return latestAssetUrl(name);
+      if (!mirror.names.includes(name)) return latestAssetUrl(name);
+    }
+    return giteeAssetUrl(name);
+  };
   useEffect(() => {
     const context = gsap.context(() => {
       if (!on) return;
@@ -1102,36 +1119,6 @@ function Page() {
                     // 只有「确实读到了最新版本、但里面没有这个产物」才改跳 Releases；
                     // 读不到接口时按老办法给直链，latest/download 本来就是猜得中的。
                     const missing = release !== null && size === undefined;
-                    // 镜像链接严格校验：镜像的最新发行版里有这个文件，且版本号对得上
-                    const mirrored = Boolean(
-                      mirror &&
-                        mirror.names.includes(item.asset) &&
-                        (!release || release.tag === mirror.tag),
-                    );
-                    const mirrorLink = mirrored ? (
-                      <a
-                        className="download-alt download-alt-mirror"
-                        href={giteeAssetUrl(item.asset)}
-                      >
-                        国内镜像（Gitee）
-                        {chinaMirror && <em className="download-alt-tag">更快</em>}
-                      </a>
-                    ) : null;
-                    const altLinks = (
-                      <>
-                        {chinaMirror && mirrorLink}
-                        {item.others?.map((other) => (
-                          <a
-                            className="download-alt"
-                            key={other.asset}
-                            href={latestAssetUrl(other.asset)}
-                          >
-                            {other.label}
-                          </a>
-                        ))}
-                        {!chinaMirror && mirrorLink}
-                      </>
-                    );
                     return (
                       <motion.div key={item.os} {...reveal(on, i)}>
                         <Tooltip.Root>
@@ -1141,7 +1128,7 @@ function Page() {
                               href={
                                 missing
                                   ? RELEASES_PAGE
-                                  : latestAssetUrl(item.asset)
+                                  : assetUrl(item.asset)
                               }
                             >
                               <span className="download-os">
@@ -1173,8 +1160,18 @@ function Page() {
                             </Tooltip.Content>
                           </Tooltip.Portal>
                         </Tooltip.Root>
-                        {(item.others || mirrored) && (
-                          <div className="download-alts">{altLinks}</div>
+                        {item.others && (
+                          <div className="download-alts">
+                            {item.others.map((other) => (
+                              <a
+                                className="download-alt"
+                                key={other.asset}
+                                href={assetUrl(other.asset)}
+                              >
+                                {other.label}
+                              </a>
+                            ))}
+                          </div>
                         )}
                       </motion.div>
                     );
