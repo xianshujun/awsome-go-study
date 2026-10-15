@@ -168,7 +168,39 @@ bash app/scripts/build-windows.sh
 
 如果日志里显示本地引擎已启动、只是窗口没出来，可以直接把日志里的地址复制到浏览器使用——功能不受影响。
 
-这是可运行的 Windows 程序，当前尚未制作 MSI 安装包、自动更新、托盘或签名。Windows 上的实机启动体验仍需在 Windows 中验收；Linux 交叉编译只能证明产物格式正确（已验证为 GUI 子系统 PE32+），不能代替真机运行。
+这是可运行的 Windows 程序：安装包已由 Inno Setup 制作，但**尚未做 MSI、自动更新、托盘与代码签名**。Windows 上的实机启动体验仍需在 Windows 中验收；Linux 交叉编译只能证明产物格式正确（已验证为 GUI 子系统 PE32+，且图标资源完整），不能代替真机运行。
+
+#### Windows 安装包
+
+不想让用户自己放文件、手动建快捷方式时，用安装包分发：
+
+```bash
+bash app/scripts/build-windows-installer.sh                  # 版本取当前 git tag
+bash app/scripts/build-windows-installer.sh --version 0.5.0  # 或显式指定版本
+```
+
+产物是 `app/release/GoStudy-Setup.exe`。脚本要求先跑过 `bash app/scripts/build-windows.sh`（要打包的 `GoStudy.exe` 就在 `app/release/`），并且要在 **Windows 上运行**——`ISCC.exe` 是 Windows 程序，装 Inno Setup 6.3+ 即可（`choco install innosetup`；装在别处时用环境变量 `ISCC` 指过去）。安装界面的简体中文来自仓库里的 `installer/windows/ChineseSimplified.isl`——Inno Setup 发行版本身并不带这个文件（源码树里有、安装包里没有），放进仓库后本地与 CI 用的是同一份。
+
+安装包替用户做的事：
+
+| 项目 | 行为 |
+|---|---|
+| 安装位置 | 让用户自己选。默认「仅为我安装」到 `%LocalAppData%\Programs\GoStudy`，不弹 UAC；选「为所有用户安装」时才提权装进 `Program Files`。 |
+| 快捷方式 | 开始菜单建 `GoStudy` 目录，桌面快捷方式默认勾选（可取消），都指向 `GoStudy.exe`。 |
+| 卸载 | 在「设置 → 应用 → 已安装的应用」里注册卸载项，卸载时一并删掉快捷方式与开始菜单目录。 |
+| 装完启动 | 结束页可以直接勾选「立即打开 GoStudy」。 |
+
+> ⚠️ **安装包不碰学习进度**：进度、笔记与草稿都在 `%AppData%\go-study`，不在安装目录里，卸载只删程序文件。装到 `Program Files` 时安装目录不可写，启动日志会退到 `%AppData%\go-study\startup.log`。
+
+> ⚠️ **安装包没有代码签名**：Windows 仍会弹「已保护你的电脑」，需要用户点「更多信息 → 仍要运行」。要消掉这个提示得买代码签名证书，属于后续事项。
+
+素材与脚本都在 `app/installer/windows/`：`GoStudy.iss` 是 Inno Setup 脚本（其中 `AppId` 是升级与卸载的识别标志，**发布之后不能改**），`gostudy.ico` 是安装包与快捷方式用的图标。图标由 `make-icon.py` 从 `frontend/public/favicon.svg` 渲染而来，同时生成 `cmd/gostudy/rsrc_windows_amd64.syso`，让 `GoStudy.exe` 自己带上图标：
+
+```bash
+python3 app/installer/windows/make-icon.py   # 需要 Chrome/Chromium 与 Pillow；改品牌图形后重跑
+```
+
+发布时由 `.github/workflows/release.yml` 的 `windows-installer` 任务在 Windows 运行器上调用构建脚本，产物以 `GoStudy-Setup.exe` 上传到 Release；落地页的下载按钮直接指向这个资源名。
 
 ### 2.3 Android 应用
 
@@ -210,6 +242,7 @@ bash app/scripts/build-android.sh release
 
 - 开发阶段先构建 React 静态资源，再启动 Go 引擎。
 - Windows 打包为内嵌资源的单个可执行文件。
+- Windows 安装包用 Inno Setup 制作：用户自选目录，自动建快捷方式，注册卸载项；学习数据不在安装目录，卸载不会删进度。
 - Android 需要 Go 移动绑定、原生容器和完整 SDK/NDK 工具链。
 
 **面试题**：
@@ -275,6 +308,7 @@ go -C app vet ./...
 go -C app run ./cmd/lessoncheck -embedded                 # 全量课程校验
 go -C app run ./cmd/lessoncheck -file backend/courses/grammar.json   # 单文件校验
 bash app/scripts/build-windows.sh
+bash app/scripts/build-windows-installer.sh --version 0.0.0   # 需在 Windows 上跑，且已装 Inno Setup 6.3+
 ```
 
 后端验证全部 43 个练习的参考解答在真实解释器中通过、starter 一律不能直接通过，以及错误代码、超时与并发收尾、本机鉴权、非法来源、进度持久化、完成证明、模型请求和密钥隐藏。前端交互测试验证学习完成、失败重试、代码变更后重新校验、AI 配置、笔记和即时切页保存。模型接口测试使用本机模拟服务，不代表已验证用户的付费模型账号。

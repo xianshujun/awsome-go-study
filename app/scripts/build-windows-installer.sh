@@ -20,7 +20,7 @@ VERSION=''
 usage() {
     printf '%s\n' \
         'Usage: build-windows-installer.sh [--version X.Y.Z] [--app path/to/GoStudy.exe]' \
-        'Requires: Inno Setup 6.5+（提供 ISCC.exe，未安装时可用 choco install innosetup），' \
+        'Requires: Inno Setup 6.3+（提供 ISCC.exe，未安装时可用 choco install innosetup），' \
         '以及已经构建好的 release/GoStudy.exe（先跑 build-windows.sh）。' \
         'Produces: release/GoStudy-Setup.exe'
 }
@@ -63,7 +63,7 @@ find_iscc() {
     done
     return 1
 }
-ISCC_BIN="$(find_iscc)" || fail '没有找到 ISCC.exe，请安装 Inno Setup 6.5+ 或设置 ISCC 环境变量'
+ISCC_BIN="$(find_iscc)" || fail '没有找到 ISCC.exe，请安装 Inno Setup 6.3+ 或设置 ISCC 环境变量'
 
 # Git Bash 会把 /Dxxx 这种参数当成路径改写，MSYS2_ARG_CONV_EXCL 关掉这个转换。
 export MSYS2_ARG_CONV_EXCL='*'

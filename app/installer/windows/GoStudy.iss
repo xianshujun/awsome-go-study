@@ -1,4 +1,4 @@
-; GoStudy Windows 安装包（Inno Setup 6.5+）
+; GoStudy Windows 安装包（Inno Setup 6.3+）
 ;
 ; 编译命令（本地或 CI 都走 app/scripts/build-windows-installer.sh）：
 ;   ISCC.exe GoStudy.iss /DAppVersion=0.5.0 /DSourceExe=..\..\release\GoStudy.exe
@@ -59,10 +59,9 @@ WizardStyle=modern
 CloseApplications=yes
 
 [Languages]
-; 简体中文语言文件是 Inno Setup 6.5 起随编译器分发的；老版本编译器就退回英文界面。
-#if FileExists(AddBackslash(CompilerPath) + "Languages\ChineseSimplified.isl")
-Name: "chinese"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
-#endif
+; 中文语言文件跟着仓库走：Inno Setup 6.7.1 的安装包里并没有带着它（仓库源码里有、
+; 发行版里没有），所以不依赖编译器自带的版本。文件来自 Inno Setup 源码树，见文件头署名。
+Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

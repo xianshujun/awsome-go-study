@@ -89,17 +89,12 @@ jobs:
             Write-Host "运行器上没有 Inno Setup，现装一个。"
             choco install innosetup -y --no-progress
           }
-          # 简体中文语言文件从 Inno Setup 6.5 起随编译器分发，缺了说明版本太老。
-          $isl = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages\ChineseSimplified.isl"
-          if (-not (Test-Path $isl)) {
-            Write-Host "Inno Setup 版本偏旧，升级到最新版以获得简体中文安装界面。"
-            choco upgrade innosetup -y --no-progress
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup 准备失败：找不到 $iscc"
           }
-          if (-not (Test-Path $iscc) -or -not (Test-Path $isl)) {
-            throw "Inno Setup 准备失败：ISCC=$iscc 中文语言文件=$isl"
-          }
+          # 中文语言文件由仓库自带（发行版不带），这里只需要一个能跑的编译器。
           Write-Host "ISCC：$iscc"
-          Write-Host "中文语言文件：$isl"
+          & $iscc /? | Select-Object -First 1
 
       - name: 确定版本号
         id: version
