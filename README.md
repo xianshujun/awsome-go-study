@@ -87,8 +87,9 @@
 GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。**落地页不让你选**：它自己看访客的位置决定下载源——国内访客默认走 Gitee，海外访客走 GitHub，镜像版本对不上、少了文件或读不到时自动回落 GitHub；卡片上只有「直接下载」，不会出现两个源让你挑。
 
 - 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/pang-xianshu/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
-- 同步由 `.github/workflows/release.yml` 的 `gitee-mirror` 任务在每次发布后自动执行，内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的（同名文件先传新的、成功后再删旧的），任务失败直接重跑即可。
-- ⚠️ 实测从 GitHub 运行器往 Gitee 传大文件会被限速（几十 KB/s，67 MB 的 APK 可能十几分钟都传不完）。脚本会在「低于 10 KB/s 持续 60 秒」时直接报错退出（任务本身封顶 90 分钟），不会干挂；遇到这种情况用下面那条本机命令补传一次即可（本机传 Gitee 实测 1.6 MB/s）。镜像的上传顺序是先传新的、成功后再删旧的，所以中途失败也不会把已镜像的版本改坏。
+- **推荐做法：发版时直接在本机传。** 本机到 Gitee 实测 1.6 MB/s，5 个文件合计 110 MB 一分多钟就传完；命令见下面的「发布时在本机镜像」。内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的（同名文件先传新的、成功后再删旧的），随时可以重跑。
+- `.github/workflows/release.yml` 里还有一个 `gitee-mirror` 任务作为兜底（没在本机传时它会自动跑）。
+- ⚠️ 兜底任务走的 GitHub 运行器出口到 Gitee 会被限速（几十 KB/s，实测 25 分钟才传完 3 个文件；67 MB 的 APK 更久）。脚本会在「低于 10 KB/s 持续 60 秒」时直接报错退出（任务本身封顶 90 分钟），不会干挂——所以别等它，本机传更快。镜像的上传顺序是先传新的、成功后再删旧的，中途失败也不会把已镜像的版本改坏。
 - **没配置令牌时这一步自动跳过**，流水线照常是绿的。
 
 一次性开通步骤：
@@ -99,7 +100,7 @@ GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有�
 4. 在 GitHub 仓库 → Settings → Secrets and variables → Actions 里加 secret `GITEE_TOKEN`（值为上一步的令牌）。想用别的仓库名，再在同一页的 Variables 里加 `GITEE_REPO`（默认 `pang-xianshu/gostudy-release`），同时改 `landing/src/main.tsx` 里的 `GITEE_REPO` 常量。
 5. 补发已发布的版本：Actions → Release → Run workflow，`gitee_tag` 填 `v0.4.0`；之后每次推 `v*` tag 都会自动镜像。
 
-本机手动镜像（需要令牌）：
+发布时在本机镜像（推荐，需要令牌）：
 
 ```bash
 GITEE_TOKEN=你的令牌 bash app/scripts/publish-gitee-release.sh \
