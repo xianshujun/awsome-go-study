@@ -20,7 +20,7 @@ import (
 	"github.com/xianshujun/awsome-go-study/app/web"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 func main() {
 	noBrowser := flag.Bool("no-browser", false, "不自动打开应用窗口")

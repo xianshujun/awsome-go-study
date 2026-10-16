@@ -6,7 +6,7 @@
 #
 # 用法：
 #   bash app/scripts/build-windows-installer.sh                 # 版本取 git tag，取不到就用 0.0.0
-#   bash app/scripts/build-windows-installer.sh --version 0.5.0 # 指定版本
+#   bash app/scripts/build-windows-installer.sh --version 0.6.0 # 指定版本
 #   bash app/scripts/build-windows-installer.sh --app <exe>     # 指定要打包的可执行文件
 #   ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe" bash app/scripts/build-windows-installer.sh
 set -euo pipefail
@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 版本号：优先命令行，其次当前 tag（v0.5.0 → 0.5.0），最后退回 0.0.0。
+# 版本号：优先命令行，其次当前 tag（v0.6.0 → 0.6.0），最后退回 0.0.0。
 # Inno Setup 的 VersionInfoVersion 只接受数字点分，所以这里顺手做个校验。
 version_from_git() {
     git -C "$APP_DIR" describe --tags --exact-match 2>/dev/null \

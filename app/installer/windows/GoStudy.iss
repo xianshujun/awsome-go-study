@@ -1,7 +1,7 @@
 ; GoStudy Windows 安装包（Inno Setup 6.3+）
 ;
 ; 编译命令（本地或 CI 都走 app/scripts/build-windows-installer.sh）：
-;   ISCC.exe GoStudy.iss /DAppVersion=0.5.0 /DSourceExe=..\..\release\GoStudy.exe
+;   ISCC.exe GoStudy.iss /DAppVersion=0.6.0 /DSourceExe=..\..\release\GoStudy.exe
 ;
 ; 产物：app/release/GoStudy-Setup.exe
 ; 做出来的安装包会：让用户选安装目录、问要不要桌面快捷方式、在开始菜单建目录、
@@ -19,7 +19,7 @@
 #ifndef SourceExe
   #define SourceExe "..\..\release\" + AppExeName
 #endif
-; VersionInfoVersion 要四段数字，0.5.0 补成 0.5.0.0
+; VersionInfoVersion 要四段数字，0.6.0 补成 0.6.0.0
 #define AppVersionQuad AppVersion + ".0"
 
 [Setup]
