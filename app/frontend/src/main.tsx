@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import CodeMirror from "@uiw/react-codemirror";
@@ -9,7 +9,6 @@ import {
   AnimatePresence,
   MotionConfig,
   motion,
-  useDragControls,
   useReducedMotion,
 } from "motion/react";
 import {
@@ -30,6 +29,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
   Clock3,
@@ -37,10 +37,12 @@ import {
   Compass,
   FileText,
   Flag,
+  History,
   Layers3,
   LoaderCircle,
   MessageCircle,
   MessagesSquare,
+  Pencil,
   Play,
   Plus,
   Power,
@@ -49,7 +51,9 @@ import {
   Settings2,
   ShieldCheck,
   Sprout,
+  SquarePen,
   Terminal,
+  Trash2,
   WifiOff,
   X,
 } from "lucide-react";
@@ -59,20 +63,16 @@ import type {
   Bootstrap,
   Course,
   Lesson,
-  Message,
   Progress,
   RunResult,
   Settings,
 } from "./api";
 import {
   dialogVariants,
-  dragDismiss,
   fadeIn,
   lift,
   rise,
   runPhases,
-  scrimVariants,
-  sheetVariants,
   springControl,
   springMeter,
   springPop,
@@ -80,6 +80,16 @@ import {
   viewEnter,
 } from "./motion";
 import { EDITOR_SIZE, motionPolicy, useDisplayPrefs } from "./prefs";
+import {
+  ASSISTANT_WINDOW,
+  clampAssistantWindow,
+  defaultAssistantWindow,
+  dockedAssistantWindow,
+  readAssistantWindow,
+  saveAssistantWindow,
+} from "./prefs";
+import type { AssistantWindow } from "./prefs";
+import { boundedText, MESSAGE_BYTES, useTutor } from "./tutor";
 import "./styles.css";
 
 type View = "home" | "courses" | "learn" | "notes" | "settings";
@@ -206,11 +216,11 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const [lessonId, setLessonId] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
-  // 展开动画要从用户点的那颗按钮长出来，所以记住屏幕坐标
-  const [assistantOrigin, setAssistantOrigin] = useState<{ x: number; y: number }>();
   const [assistantCode, setAssistantCode] = useState<string>();
   const [toast, setToast] = useState("");
   const [quit, setQuit] = useState(false);
+  const tutor = useTutor();
+  const hydrateTutor = tutor.hydrate;
   const { prefs, update } = useDisplayPrefs();
   // 这里在 MotionConfig 之外读取，拿到的是系统设置；用户在本机的选择优先。
   const systemReduce = useReducedMotion();
@@ -226,6 +236,8 @@ export function App() {
       .catch((error) => setLoadingError(error.message));
   }, []);
   useEffect(load, [load]);
+  // bootstrap 回来后再恢复上次的对话：面板在没打开时就已经准备好了内容。
+  useEffect(() => hydrateTutor(data?.conversations), [data?.conversations, hydrateTutor]);
   const openLesson = (id: string) => {
     setLessonId(id);
     setAssistantCode(undefined);
@@ -251,10 +263,7 @@ export function App() {
     setView(id);
     window.scrollTo(0, 0);
   };
-  const openAssistant = useCallback((open: boolean, origin?: { x: number; y: number }) => {
-    if (open && origin) setAssistantOrigin(origin);
-    setAssistantOpen(open);
-  }, []);
+  const openAssistant = useCallback((open: boolean) => setAssistantOpen(open), []);
 
   return (
     <MotionConfig reducedMotion={motionPolicy(reduce)}>
@@ -277,7 +286,7 @@ export function App() {
             view={view}
             onNavigate={navigate}
             assistantOpen={assistantOpen}
-            assistantOrigin={assistantOrigin}
+            tutor={tutor}
             onAssistant={openAssistant}
             notesCount={Object.values(data.progress.notes || {}).filter(Boolean).length}
               lessonId={lessonId}
@@ -316,7 +325,7 @@ function Shell({
   view,
   onNavigate,
   assistantOpen,
-  assistantOrigin,
+  tutor,
   onAssistant,
   notesCount,
   lessonId,
@@ -334,8 +343,8 @@ function Shell({
   view: View;
   onNavigate: (view: View) => void;
   assistantOpen: boolean;
-  assistantOrigin?: { x: number; y: number };
-  onAssistant: (open: boolean, origin?: { x: number; y: number }) => void;
+  tutor: Tutor;
+  onAssistant: (open: boolean) => void;
   notesCount: number;
   lessonId: string;
   assistantCode?: string;
@@ -349,6 +358,7 @@ function Shell({
   onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number }) => void;
 }) {
   const motionOn = useMotionEnabled();
+  const [tutorSpace, setTutorSpace] = useState(0);
   const completed = data.progress.completed || [];
   const percent = Math.round((completed.length / data.lessons.length) * 100) || 0;
   const next =
@@ -370,7 +380,10 @@ function Shell({
   };
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={{ "--tutor-space": assistantOpen ? `${tutorSpace}px` : "0px" } as CSSProperties}
+    >
       <header className="topbar">
         <span className="topbar-edge" aria-hidden="true" />
         <div className="topbar-inner">
@@ -401,7 +414,7 @@ function Shell({
             </span>
             <button
               className="assistant-trigger"
-              onClick={(event) => onAssistant(true, { x: event.clientX, y: event.clientY })}
+              onClick={() => onAssistant(true)}
             >
               <MessagesSquare size={15} />
               AI 导师
@@ -550,7 +563,7 @@ function Shell({
               </div>
               <button
                 className="text-button"
-                onClick={(event) => onAssistant(true, { x: event.clientX, y: event.clientY })}
+                onClick={() => onAssistant(true)}
               >
                 打开导师 <ArrowRight size={16} />
               </button>
@@ -639,7 +652,7 @@ function Shell({
             onProgress={onProgress}
             onNext={onOpenLesson}
             onCourses={() => onNavigate("courses")}
-            onAI={(origin) => onAssistant(true, origin)}
+            onAI={() => onAssistant(true)}
             onNotify={onNotify}
             motionOn={motionOn}
           />
@@ -667,19 +680,21 @@ function Shell({
       <AnimatePresence>
         {assistantOpen && (
           <Assistant
+            tutor={tutor}
             lesson={view === "learn" ? currentLesson : next}
             code={
               view === "learn"
                 ? assistantCode ?? data.progress.drafts?.[currentLesson.id]
                 : data.progress.drafts?.[next.id]
             }
+            lessons={data.lessons}
             settings={data.settings}
-            origin={assistantOrigin}
             onClose={() => onAssistant(false)}
             onSettings={() => {
               onNavigate("settings");
               onAssistant(false);
             }}
+            onDock={setTutorSpace}
             motionOn={motionOn}
           />
         )}
@@ -999,7 +1014,7 @@ function LearningWorkspace({
   onProgress: (p: Progress) => void;
   onNext: (id: string) => void;
   onCourses: () => void;
-  onAI: (origin: { x: number; y: number }) => void;
+  onAI: () => void;
   onNotify: (s: string) => void;
   motionOn: boolean;
 }) {
@@ -1182,7 +1197,7 @@ function LearningWorkspace({
         </div>
         <button
           className="button secondary"
-          onClick={(event) => onAI({ x: event.clientX, y: event.clientY })}
+          onClick={onAI}
         >
           <MessagesSquare size={16} />
           和导师一起想
@@ -1539,251 +1554,523 @@ function modelReady(settings: Settings) {
   }
 }
 
-function boundedText(text: string, bytes: number) {
-  const encoder = new TextEncoder();
-  let result = "";
-  let size = 0;
-  for (const character of text) {
-    size += encoder.encode(character).length;
-    if (size > bytes) break;
-    result += character;
-  }
-  return result;
+function viewport() {
+  return { width: window.innerWidth, height: window.innerHeight };
 }
 
+/** 停靠位置要紧贴顶栏下方；顶栏在窄屏会换行变高，所以每次都量一遍。 */
+function topbarHeight() {
+  return document.querySelector<HTMLElement>(".topbar")?.getBoundingClientRect().height ?? 66;
+}
+
+/** 只有宽屏才有"停靠"这回事；窄屏下面板是贴底的一整幅。 */
+function wideLayout() {
+  return window.matchMedia("(min-width: 900px)").matches;
+}
+
+/** 正文放下两栏练习所需的最小宽度；不够宽就不让位，面板浮在内容上（仍然可以拖走）。 */
+const CONTENT_MIN_WIDTH = 810;
+
+function canReserveSpace(width: number) {
+  return wideLayout() && window.innerWidth - (width + ASSISTANT_WINDOW.margin * 2) >= CONTENT_MIN_WIDTH;
+}
+
+/** 列表里的时间只到"哪天/多久以前"这个精度，够用又不吵。 */
+function relativeTime(seconds: number) {
+  if (!seconds) return "";
+  const minutes = (Date.now() / 1000 - seconds) / 60;
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${Math.floor(minutes)} 分钟前`;
+  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)} 小时前`;
+  if (minutes < 60 * 24 * 7) return `${Math.floor(minutes / (60 * 24))} 天前`;
+  return new Date(seconds * 1000).toLocaleDateString("zh-CN");
+}
+
+type Tutor = ReturnType<typeof useTutor>;
+
+/**
+ * 导师面板默认停靠在右侧：页面内容会给它让出空间，所以打开面板
+ * 不会盖住编辑器、运行按钮或测验，左边该干嘛干嘛。拖走之后它就是一扇普通浮窗。
+ * 对话由 useTutor 持有，收起面板只是收起视图，问题和回答都还在。
+ */
 function Assistant({
+  tutor,
   lesson,
   code,
+  lessons,
   settings,
-  origin,
   onClose,
   onSettings,
+  onDock,
   motionOn,
 }: {
+  tutor: Tutor;
   lesson: Lesson;
   code?: string;
+  lessons: Lesson[];
   settings: Settings;
-  origin?: { x: number; y: number };
   onClose: () => void;
   onSettings: () => void;
+  /** 停靠时把占位宽度报给外层，页面据此让出位置。 */
+  onDock: (width: number) => void;
   motionOn: boolean;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const abort = useRef<AbortController | undefined>(undefined);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [renaming, setRenaming] = useState("");
+  const [renameText, setRenameText] = useState("");
+  const [confirming, setConfirming] = useState("");
+  const [moving, setMoving] = useState(false);
+  const [box, setBox] = useState<AssistantWindow>(() => readAssistantWindow(viewport(), topbarHeight()));
   const bottom = useRef<HTMLDivElement>(null);
+  const inputBox = useRef<HTMLTextAreaElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const dragControls = useDragControls();
-  // 从触发按钮的位置长出来：把屏幕坐标换算成面板内部的 transform-origin。
-  // 用 layout 阶段写入，保证首帧就已经在正确的原点。
-  useLayoutEffect(() => {
-    const node = panel.current;
-    if (!node || !origin) return;
-    const rect = node.getBoundingClientRect();
-    node.style.transformOrigin = `${origin.x - rect.left}px ${origin.y - rect.top}px`;
-  }, [origin]);
+  const ready = modelReady(settings);
+  const lessonTitles = useMemo(
+    () => new Map(lessons.map((item) => [item.id, item.title])),
+    [lessons],
+  );
+
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
-  useEffect(() => () => abort.current?.abort(), []);
-  const send = async (message = input) => {
-    if (!message.trim() || sending || !modelReady(settings)) return;
-    setInput("");
-    setError("");
-    setSending(true);
-    const history = messages
-      .slice(-8)
-      .map((item) => ({ ...item, content: boundedText(item.content, 1800) }));
-    setMessages((current) => [...current, { role: "user", content: message }]);
-    abort.current = new AbortController();
-    try {
-      const response = await api<{ reply: string }>(
-        "chat",
-        {
-          lessonId: lesson.id,
-          code: code ?? lesson.starter,
-          message: boundedText(message, 4096),
-          history,
-        },
-        abort.current.signal,
+  }, [tutor.messages, tutor.sending, historyOpen]);
+  useEffect(() => {
+    const fit = () =>
+      setBox((current) =>
+        current.docked && wideLayout()
+          ? dockedAssistantWindow(current.width, viewport(), topbarHeight())
+          : clampAssistantWindow(current, viewport()),
       );
-      setMessages((current) => [...current, { role: "assistant", content: response.reply }]);
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") setError((err as Error).message);
-    } finally {
-      setSending(false);
-    }
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  // 停靠时让页面让出右侧空间：面板与内容并排，而不是盖在内容上。
+  useEffect(() => {
+    onDock(box.docked && canReserveSpace(box.width) ? box.width + ASSISTANT_WINDOW.margin * 2 : 0);
+    return () => onDock(0);
+  }, [box.docked, box.width, onDock]);
+
+  const context = { lessonId: lesson.id, code };
+  const send = (message = input) => {
+    const text = message.trim();
+    if (!text || tutor.sending || !ready) return;
+    setInput("");
+    void tutor.send(text, context);
   };
-  const ready = modelReady(settings);
+  const startFresh = async () => {
+    setHistoryOpen(false);
+    await tutor.create(lesson.id);
+    inputBox.current?.focus();
+  };
+
+  // 拖动与缩放都用指针事件直接改 left/top/width/height：
+  // 面板的坐标要落到 localStorage，不能只停在 motion 的 transform 上。
+  const drag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !wideLayout()) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    const node = event.currentTarget;
+    // 从停靠状态拖走时，先把当前的实际位置接过来，面板不会跳一下。
+    const rect = panel.current?.getBoundingClientRect();
+    const origin = rect
+      ? { docked: false, x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      : { ...box, docked: false };
+    const start = { x: event.clientX, y: event.clientY, box: origin };
+    node.setPointerCapture(event.pointerId);
+    setMoving(true);
+    setBox(origin);
+    const move = (moveEvent: PointerEvent) =>
+      setBox(
+        clampAssistantWindow(
+          { ...start.box, x: start.box.x + moveEvent.clientX - start.x, y: start.box.y + moveEvent.clientY - start.y },
+          viewport(),
+        ),
+      );
+    const stop = () => {
+      node.removeEventListener("pointermove", move);
+      node.removeEventListener("pointerup", stop);
+      node.removeEventListener("pointercancel", stop);
+      setMoving(false);
+      setBox((current) => {
+        saveAssistantWindow(current);
+        return current;
+      });
+    };
+    node.addEventListener("pointermove", move);
+    node.addEventListener("pointerup", stop);
+    node.addEventListener("pointercancel", stop);
+  };
+  const resize = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    const node = event.currentTarget;
+    const rect = panel.current?.getBoundingClientRect();
+    const origin = rect
+      ? { docked: box.docked, x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      : box;
+    const start = { x: event.clientX, y: event.clientY, box: origin };
+    const right = origin.x + origin.width;
+    const bottomEdge = origin.y + origin.height;
+    node.setPointerCapture(event.pointerId);
+    setMoving(true);
+    const move = (moveEvent: PointerEvent) => {
+      const width = start.box.width - (moveEvent.clientX - start.x);
+      // 停靠时只调宽度：页面占位跟着变，仍然谁也不挡。
+      if (start.box.docked) {
+        setBox(dockedAssistantWindow(width, viewport(), topbarHeight()));
+        return;
+      }
+      const height = start.box.height - (moveEvent.clientY - start.y);
+      // 从左上角拉伸，右下角保持不动，手感才和拖边框一致。
+      setBox(
+        clampAssistantWindow(
+          { docked: false, width, height, x: right - Math.max(width, ASSISTANT_WINDOW.minWidth), y: bottomEdge - Math.max(height, ASSISTANT_WINDOW.minHeight) },
+          viewport(),
+        ),
+      );
+    };
+    const stop = () => {
+      node.removeEventListener("pointermove", move);
+      node.removeEventListener("pointerup", stop);
+      node.removeEventListener("pointercancel", stop);
+      setMoving(false);
+      setBox((current) => {
+        saveAssistantWindow(current);
+        return current;
+      });
+    };
+    node.addEventListener("pointermove", move);
+    node.addEventListener("pointerup", stop);
+    node.addEventListener("pointercancel", stop);
+  };
+  /** 双击标题栏：拖乱了、缩过头了，一键回到默认的停靠位置。 */
+  const dockBack = () => {
+    const next = defaultAssistantWindow(viewport(), topbarHeight());
+    const fitted = { ...next, width: box.width };
+    saveAssistantWindow(fitted);
+    setBox(fitted);
+  };
+
   return (
-    <Dialog.Root open onOpenChange={(open) => !open && onClose()} modal>
+    <Dialog.Root open modal={false} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal forceMount>
-        <div className="assistant-overlay">
-          <Dialog.Overlay asChild forceMount>
-            <motion.div
-              className="assistant-scrim"
-              variants={scrimVariants}
-              initial={motionOn ? "hidden" : false}
-              animate="shown"
-              exit="out"
+        <Dialog.Content
+          asChild
+          forceMount
+          // 非模态：不许点外面就关闭，否则换个焦点、点一下编辑器就把面板关了。
+          onInteractOutside={(event) => event.preventDefault()}
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <motion.aside
+            ref={panel}
+            className={`assistant-panel ${moving ? "moving" : ""} ${box.docked ? "docked" : ""}`}
+            style={
+              {
+                "--panel-x": `${box.x}px`,
+                "--panel-y": `${box.y}px`,
+                "--panel-w": `${box.width}px`,
+                "--panel-h": `${box.height}px`,
+              } as CSSProperties
+            }
+            variants={dialogVariants}
+            initial={motionOn ? "hidden" : false}
+            animate="shown"
+            exit="out"
+          >
+            <div
+              className="assistant-resize"
+              onPointerDown={resize}
+              title="拖动调整面板大小"
+              aria-hidden="true"
             />
-          </Dialog.Overlay>
-          <Dialog.Content asChild forceMount aria-label="AI 导师">
-            <motion.aside
-              ref={panel}
-              className="assistant-panel"
-              variants={sheetVariants}
-              initial={motionOn ? "hidden" : false}
-              animate="shown"
-              exit="out"
-              drag={motionOn ? "y" : false}
-              dragListener={false}
-              dragControls={dragControls}
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.55 }}
-              onDragEnd={(_, info) => {
-                // 下拉够远或够快就关闭，方向与手势一致
-                if (info.offset.y > dragDismiss.distance || info.velocity.y > dragDismiss.velocity) {
-                  onClose();
-                }
-              }}
+            <header
+              className="assistant-header"
+              onPointerDown={drag}
+              onDoubleClick={dockBack}
+              title="拖动可以移动面板 · 双击回到右下角"
             >
-              <div
-                className="assistant-header"
-                onPointerDown={(event) => dragControls.start(event)}
-              >
-                <div className="ai-avatar">
-                  <MessagesSquare size={19} />
-                </div>
-                <div>
-                  <Dialog.Title>AI 导师</Dialog.Title>
-                  <Dialog.Description asChild>
-                    <span>{ready ? settings.model : "尚未连接模型"}</span>
-                  </Dialog.Description>
-                </div>
+              <div className="ai-avatar">
+                <MessagesSquare size={19} />
+              </div>
+              <div className="assistant-heading">
+                <Dialog.Title>AI 导师</Dialog.Title>
+                <Dialog.Description asChild>
+                  <span>
+                    {tutor.active?.title || (ready ? settings.model : "尚未连接模型")}
+                  </span>
+                </Dialog.Description>
+              </div>
+              <div className="assistant-actions">
+                <button
+                  className={`icon-button ${historyOpen ? "active" : ""}`}
+                  aria-label="对话历史"
+                  title="对话历史"
+                  onClick={() => setHistoryOpen((open) => !open)}
+                >
+                  <History size={18} />
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="新建对话"
+                  title="新建对话"
+                  onClick={() => void startFresh()}
+                >
+                  <SquarePen size={17} />
+                </button>
                 <Dialog.Close asChild>
-                  <button className="icon-button" aria-label="关闭 AI 导师">
+                  <button className="icon-button" aria-label="关闭 AI 导师" title="收起面板，对话会留着">
                     <X size={19} />
                   </button>
                 </Dialog.Close>
               </div>
+            </header>
+            {!historyOpen && (
               <div className="assistant-context">
                 <BookOpen size={14} />
                 当前上下文<span>{lesson.title}</span>
               </div>
-              <div className="chat-messages">
-                {messages.length === 0 && (
-                  <div className="assistant-welcome">
-                    <span className="welcome-mark">
-                      <MessagesSquare size={24} />
-                    </span>
-                    <h3>先自己跑一遍，再来问为什么。</h3>
-                    <p>
-                      概念、线索、报错信息都可以拿进来讨论；
-                      <br />
-                      但它不会替你写完这一课。
+            )}
+            <div className="assistant-body">
+              {historyOpen ? (
+                <div className="assistant-history">
+                  <div className="history-head">
+                    <button
+                      className="icon-button"
+                      aria-label="返回对话"
+                      onClick={() => setHistoryOpen(false)}
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <strong>对话历史</strong>
+                    <span>{tutor.items.length ? `${tutor.items.length} 段` : "还没有"}</span>
+                  </div>
+                  {tutor.items.length === 0 ? (
+                    <p className="history-empty">
+                      还没有对话记录。回到对话问第一个问题，就会自动建一段，之后随时能回来接着问。
                     </p>
-                    {!ready ? (
-                      <div className="ai-setup">
-                        <span>先连接你选择的模型</span>
-                        <p>
-                          对话需要你自己的 API Key；课程讲解、练习和进度不需要联网，仍然可以正常使用。
-                        </p>
-                        <button className="button primary" onClick={onSettings}>
-                          配置 AI 导师 <ArrowRight size={16} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="suggestions">
-                        {[
-                          "用一个生活中的例子解释这一课",
-                          "给我一点提示，先不要告诉我答案",
-                          "看看我的代码，引导我找出问题",
-                        ].map((text, i) => (
-                          <motion.button key={text} onClick={() => send(text)} {...rise(motionOn, i)}>
-                            {text}
-                            <Plus size={14} />
-                          </motion.button>
-                        ))}
+                  ) : (
+                    <ul className="history-list">
+                      {tutor.items.map((item) => {
+                        const label = item.title || "新对话";
+                        return (
+                          <li
+                            key={item.id}
+                            className={`history-item ${item.id === tutor.activeId ? "active" : ""}`}
+                          >
+                            {renaming === item.id ? (
+                              <form
+                                className="history-rename"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void tutor.rename(item.id, renameText);
+                                  setRenaming("");
+                                }}
+                              >
+                                <input
+                                  aria-label="对话名称"
+                                  value={renameText}
+                                  maxLength={60}
+                                  autoFocus
+                                  onChange={(event) => setRenameText(event.target.value)}
+                                  onKeyDown={(event) => event.key === "Escape" && setRenaming("")}
+                                />
+                                <button className="button primary" type="submit">
+                                  保存
+                                </button>
+                                <button
+                                  className="text-button"
+                                  type="button"
+                                  onClick={() => setRenaming("")}
+                                >
+                                  取消
+                                </button>
+                              </form>
+                            ) : (
+                              <>
+                                <button
+                                  className="history-open"
+                                  onClick={() => {
+                                    void tutor.open(item.id);
+                                    setHistoryOpen(false);
+                                  }}
+                                >
+                                  <span className="history-title">{label}</span>
+                                  <span className="history-meta">
+                                    {lessonTitles.get(item.lessonId) ?? "已归档的课程"} ·{" "}
+                                    {relativeTime(item.updatedAt)} · {item.messageCount} 条
+                                  </span>
+                                  {item.preview && (
+                                    <span className="history-preview">{item.preview}</span>
+                                  )}
+                                </button>
+                                <div className="history-actions">
+                                  {confirming === item.id ? (
+                                    <>
+                                      <button
+                                        className="text-button danger"
+                                        onClick={() => {
+                                          void tutor.remove(item.id);
+                                          setConfirming("");
+                                        }}
+                                      >
+                                        确认删除
+                                      </button>
+                                      <button
+                                        className="text-button"
+                                        onClick={() => setConfirming("")}
+                                      >
+                                        取消
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        className="icon-button"
+                                        aria-label={`重命名 ${label}`}
+                                        onClick={() => {
+                                          setRenaming(item.id);
+                                          setRenameText(label);
+                                        }}
+                                      >
+                                        <Pencil size={15} />
+                                      </button>
+                                      <button
+                                        className="icon-button"
+                                        aria-label={`删除 ${label}`}
+                                        onClick={() => setConfirming(item.id)}
+                                      >
+                                        <Trash2 size={15} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="chat-messages">
+                    {tutor.opening && (
+                      <div className="thinking">
+                        <LoaderCircle size={15} className="spin" />
+                        正在打开这段对话…
                       </div>
                     )}
+                    {!tutor.opening && tutor.messages.length === 0 && (
+                      <div className="assistant-welcome">
+                        <span className="welcome-mark">
+                          <MessagesSquare size={24} />
+                        </span>
+                        <h3>先自己跑一遍，再来问为什么。</h3>
+                        <p>
+                          概念、线索、报错信息都可以拿进来讨论；
+                          <br />
+                          但它不会替你写完这一课。
+                        </p>
+                        {!ready ? (
+                          <div className="ai-setup">
+                            <span>先连接你选择的模型</span>
+                            <p>
+                              对话需要你自己的 API Key；课程讲解、练习和进度不需要联网，仍然可以正常使用。
+                            </p>
+                            <button className="button primary" onClick={onSettings}>
+                              配置 AI 导师 <ArrowRight size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="suggestions">
+                            {[
+                              "用一个生活中的例子解释这一课",
+                              "给我一点提示，先不要告诉我答案",
+                              "看看我的代码，引导我找出问题",
+                            ].map((text, i) => (
+                              <motion.button key={text} onClick={() => send(text)} {...rise(motionOn, i)}>
+                                {text}
+                                <Plus size={14} />
+                              </motion.button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {tutor.messages.map((message, i) => (
+                      <motion.div
+                        key={i}
+                        className={`chat-message ${message.role}`}
+                        {...rise(motionOn, 0)}
+                      >
+                        <span className="message-label">
+                          {message.role === "user" ? "你" : "AI 导师"}
+                        </span>
+                        <div className="markdown">
+                          <ReactMarkdown>{message.content}</ReactMarkdown>
+                        </div>
+                      </motion.div>
+                    ))}
+                    {tutor.sending && (
+                      <div className="thinking">
+                        <LoaderCircle size={15} className="spin" />
+                        正在换个角度想一想…
+                      </div>
+                    )}
+                    {tutor.error && (
+                      <div className="error-box" role="alert">
+                        {tutor.error}
+                        <button className="text-button" onClick={() => void tutor.retry(context)}>
+                          重试
+                        </button>
+                      </div>
+                    )}
+                    <div ref={bottom} />
                   </div>
-                )}
-                {messages.map((message, i) => (
-                  <motion.div
-                    key={i}
-                    className={`chat-message ${message.role}`}
-                    {...rise(motionOn, 0)}
-                  >
-                    <span className="message-label">
-                      {message.role === "user" ? "你" : "AI 导师"}
-                    </span>
-                    <div className="markdown">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
-                    </div>
-                  </motion.div>
-                ))}
-                {sending && (
-                  <div className="thinking">
-                    <LoaderCircle size={15} className="spin" />
-                    正在换个角度想一想…
-                  </div>
-                )}
-                {error && (
-                  <div className="error-box" role="alert">
-                    {error}
-                    <button
-                      className="text-button"
-                      onClick={() => send(messages.filter((m) => m.role === "user").at(-1)?.content)}
-                    >
-                      重试
-                    </button>
-                  </div>
-                )}
-                <div ref={bottom} />
-              </div>
-              <form
-                className="chat-compose"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void send();
-                }}
-              >
-                <textarea
-                  aria-label="向 AI 导师提问"
-                  placeholder={ready ? "把你的问题说出来…" : "配置模型后，开始你的第一次对话"}
-                  value={input}
-                  onChange={(event) => setInput(boundedText(event.target.value, 4096))}
-                  disabled={!ready}
-                  maxLength={2000}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  <form
+                    className="chat-compose"
+                    onSubmit={(event) => {
                       event.preventDefault();
-                      void send();
-                    }
-                  }}
-                />
-                <div>
-                  <span>Enter 发送 · Shift + Enter 换行</span>
-                  <button
-                    className="send-button"
-                    type="submit"
-                    disabled={sending || !input.trim() || !ready}
-                    aria-label="发送消息"
+                      send();
+                    }}
                   >
-                    <Send size={17} />
-                  </button>
-                </div>
-              </form>
-              <p className="ai-disclaimer">
-                <ShieldCheck size={12} />
-                仅发送当前课题、代码、课程笔记与本轮对话。AI 回复请运行验证。
-              </p>
-            </motion.aside>
-          </Dialog.Content>
-        </div>
+                    <textarea
+                      ref={inputBox}
+                      aria-label="向 AI 导师提问"
+                      placeholder={ready ? "把你的问题说出来…" : "配置模型后，开始你的第一次对话"}
+                      value={input}
+                      onChange={(event) => setInput(boundedText(event.target.value, MESSAGE_BYTES))}
+                      disabled={!ready}
+                      maxLength={2000}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          send();
+                        }
+                      }}
+                    />
+                    <div>
+                      <span>Enter 发送 · Shift + Enter 换行</span>
+                      <button
+                        className="send-button"
+                        type="submit"
+                        disabled={tutor.sending || !input.trim() || !ready}
+                        aria-label="发送消息"
+                      >
+                        <Send size={17} />
+                      </button>
+                    </div>
+                  </form>
+                  <p className="ai-disclaimer">
+                    <ShieldCheck size={12} />
+                    仅发送当前课题、代码、课程笔记与本轮对话；对话保存在本机。
+                  </p>
+                </>
+              )}
+            </div>
+          </motion.aside>
+        </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );

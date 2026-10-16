@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './main';
-import type { Bootstrap, Lesson, Progress, RunResult, Settings } from './api';
+import type { Bootstrap, Conversation, ConversationSummary, Lesson, Progress, RunResult, Settings } from './api';
 
 // 使用同一 onChange 契约，测试用户编辑而不是 CodeMirror 的布局细节。
 vi.mock('@uiw/react-codemirror', () => ({
@@ -38,17 +38,81 @@ function bootstrap(progress: Partial<Progress> = {}): Bootstrap {
     progress: { completed: [], drafts: {}, notes: {}, lastLesson: '', ...progress },
     settings: { baseUrl: 'https://api.example.com/v1', model: 'study-model', hasKey: false },
     runtime: { platform: 'linux/amd64', engine: '受限解释器' },
+    conversations: { activeId: '', items: [] },
   };
 }
 
 type RequestBody = {
   lessonId?: string; code?: string; note?: string; complete?: boolean; quizAnswer?: number;
   baseUrl?: string; model?: string; apiKey?: string; clearKey?: boolean; message?: string;
+  action?: string; id?: string; role?: string; content?: string; title?: string;
+  history?: { role: string; content: string }[];
 };
 type RecordedRequest = { path: string; body?: RequestBody; authorization: string | null };
+type StoredChat = { id: string; title: string; lessonId: string; updatedAt: number; messages: { role: 'user' | 'assistant'; content: string; at: number }[] };
 let state: Bootstrap;
 let requests: RecordedRequest[];
 let runResponse: () => Promise<Response>;
+let chats: StoredChat[];
+let activeChat: string;
+let clock: number;
+
+function chatSummary(chat: StoredChat): ConversationSummary {
+  return {
+    id: chat.id, title: chat.title, lessonId: chat.lessonId, updatedAt: chat.updatedAt,
+    messageCount: chat.messages.length, preview: chat.messages.at(-1)?.content.slice(0, 60) ?? '',
+  };
+}
+
+/** 服务端对话接口的最小实现：够验证"内容真的写回去了"就行。 */
+function conversationsAPI(body: RequestBody): Response {
+  const detail = (chat?: StoredChat): Record<string, unknown> => ({
+    activeId: activeChat,
+    items: chats.map(chatSummary),
+    ...(chat ? { conversation: { ...chatSummary(chat), messages: chat.messages } satisfies Conversation } : {}),
+  });
+  const find = (id?: string) => chats.find(chat => chat.id === id);
+  switch (body.action) {
+    case 'list':
+      return json(detail());
+    case 'create': {
+      const chat: StoredChat = { id: `chat-${chats.length + 1}`, title: '', lessonId: body.lessonId ?? '', updatedAt: ++clock, messages: [] };
+      chats.unshift(chat);
+      activeChat = chat.id;
+      return json(detail(chat));
+    }
+    case 'get': {
+      const chat = find(body.id);
+      if (!chat) return json({ error: '对话不存在' }, 400);
+      activeChat = chat.id;
+      return json(detail(chat));
+    }
+    case 'append': {
+      const chat = find(body.id);
+      if (!chat) return json({ error: '对话不存在' }, 400);
+      chat.messages.push({ role: body.role as 'user' | 'assistant', content: body.content ?? '', at: ++clock });
+      if (!chat.title && body.role === 'user') chat.title = body.content ?? '';
+      chat.updatedAt = ++clock;
+      activeChat = chat.id;
+      return json(detail(chat));
+    }
+    case 'rename': {
+      const chat = find(body.id);
+      if (!chat) return json({ error: '对话不存在' }, 400);
+      chat.title = body.title ?? chat.title;
+      return json(detail(chat));
+    }
+    case 'delete': {
+      const index = chats.findIndex(chat => chat.id === body.id);
+      if (index < 0) return json({ error: '对话不存在' }, 400);
+      chats.splice(index, 1);
+      if (activeChat === body.id) activeChat = chats[0]?.id ?? '';
+      return json(detail(find(activeChat)));
+    }
+    default:
+      return json({ error: '未知的对话操作' }, 400);
+  }
+}
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
@@ -63,14 +127,18 @@ function deferred<T>() {
 beforeEach(() => {
   state = bootstrap();
   requests = [];
+  chats = [];
+  activeChat = '';
+  clock = 1000;
   sessionStorage.setItem('gostudy-token', 'test-session-token');
   runResponse = async () => json({ output: 'Hello, Go!\n', passed: true, durationMs: 3 } satisfies RunResult);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const path = String(input).replace('/api/', '');
     const body = init?.body ? JSON.parse(String(init.body)) as RequestBody : undefined;
     requests.push({ path, body, authorization: new Headers(init?.headers).get('Authorization') });
-    if (path === 'bootstrap') return json(state);
+    if (path === 'bootstrap') return json({ ...state, conversations: { activeId: activeChat, items: chats.map(chatSummary) } });
     if (path === 'run') return runResponse();
+    if (path === 'conversations' && body) return conversationsAPI(body);
     if (path === 'progress' && body?.lessonId) {
       const id = body.lessonId;
       state.progress = {
@@ -108,6 +176,39 @@ async function replaceCode(user: ReturnType<typeof userEvent.setup>, code: strin
   // paste 保留 Go 的花括号与换行，避免被 user-event 当作按键描述。
   await user.click(editor);
   await user.paste(code);
+}
+
+/** 无密钥的本机模型：不需要联网就能把导师面板解锁到可提问状态。 */
+async function useLocalModel(user: ReturnType<typeof userEvent.setup>) {
+  render(<App />);
+  await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+  const address = screen.getByRole('textbox', { name: /^API 地址/ });
+  await user.clear(address);
+  await user.type(address, 'http://127.0.0.1:11434/v1');
+  const model = screen.getByRole('textbox', { name: /^模型名称/ });
+  await user.clear(model);
+  await user.type(model, 'local-study-model');
+  await user.click(screen.getByRole('button', { name: '保存配置' }));
+  await screen.findByText('模型配置已保存到本机。');
+}
+
+/** 从设置页回到第一课，并打开导师浮窗。 */
+async function openTutor(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'GoStudy 首页' }));
+  await user.click(screen.getByRole('button', { name: '开始第一课' }));
+  await user.click(screen.getByRole('button', { name: '和导师一起想' }));
+  return screen.getByRole('dialog', { name: 'AI 导师' });
+}
+
+/** 面板标题栏也会显示同一句标题，断言消息时只看对话区。 */
+function chatText() {
+  return document.querySelector('.chat-messages')?.textContent ?? '';
+}
+
+async function ask(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement, question: string) {
+  await user.type(within(dialog).getByRole('textbox', { name: '向 AI 导师提问' }), question);
+  await user.click(within(dialog).getByRole('button', { name: '发送消息' }));
+  await within(dialog).findByText('连接成功，可以开始学习。');
 }
 
 describe('学习空间的关键交互', () => {
@@ -277,5 +378,107 @@ describe('学习空间的关键交互', () => {
     await user.click(exported.getByRole('button', { name: '复制笔记' }));
     expect(await screen.findByText('学习笔记已复制。')).toBeVisible();
     expect(await navigator.clipboard.readText()).toContain(savedNote);
+  });
+
+  it('导师浮窗不挡页面：面板开着也能改代码、跑程序，收起后再打开问题和回答都还在', async () => {
+    const user = userEvent.setup();
+    await useLocalModel(user);
+    await openTutor(user);
+    await user.click(screen.getByRole('tab', { name: '动手挑战' }));
+
+    // 面板不是模态对话框：没有遮罩，页面其余部分照常可用。
+    expect(document.querySelector('.assistant-scrim')).toBeNull();
+    expect(document.querySelector('.assistant-overlay')).toBeNull();
+    await replaceCode(user, solution);
+    await user.click(screen.getByRole('button', { name: '运行代码' }));
+    expect(await screen.findByText(/挑战通过/)).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'AI 导师' })).toBeVisible();
+
+    const dialog = screen.getByRole('dialog', { name: 'AI 导师' });
+    await ask(user, dialog, '为什么要用 main？');
+    // 一条提问先写进本机记录，再去问模型，回答也写回去。
+    expect(requests.filter(request => request.path === 'conversations').map(request => request.body?.action)).toEqual([
+      'create', 'append', 'append',
+    ]);
+    expect(requests.filter(request => request.path === 'conversations')[1]?.body).toMatchObject({
+      lessonId: 'hello', role: 'user', content: '为什么要用 main？',
+    });
+    expect(chats.flatMap(chat => chat.messages.map(message => `${message.role}:${message.content}`))).toEqual([
+      'user:为什么要用 main？', 'assistant:连接成功，可以开始学习。',
+    ]);
+
+    // 收起面板只是收起视图，再打开时问题和回答都在，草稿问题也不会丢。
+    await user.click(within(dialog).getByRole('button', { name: '关闭 AI 导师' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: '和导师一起想' }));
+    const reopened = screen.getByRole('dialog', { name: 'AI 导师' });
+    expect(chatText()).toContain('为什么要用 main？');
+    expect(chatText()).toContain('连接成功，可以开始学习。');
+    expect(within(reopened).getByRole('textbox', { name: '向 AI 导师提问' })).toHaveValue('');
+  });
+
+  it('重启应用后恢复上次的对话，不重问也能接着聊', async () => {
+    const user = userEvent.setup();
+    chats = [{
+      id: 'chat-restored', title: '值语义和指针语义', lessonId: 'hello', updatedAt: 1000,
+      messages: [
+        { role: 'user', content: '值语义是什么？', at: 1000 },
+        { role: 'assistant', content: '先看赋值之后能不能改。', at: 1001 },
+      ],
+    }];
+    activeChat = 'chat-restored';
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '开始第一课' }));
+    await user.click(screen.getByRole('button', { name: '和导师一起想' }));
+    const dialog = screen.getByRole('dialog', { name: 'AI 导师' });
+    // bootstrap 只带摘要，打开面板时才按 id 取回正文。
+    expect(await within(dialog).findByText('值语义是什么？')).toBeVisible();
+    expect(within(dialog).getByText('先看赋值之后能不能改。')).toBeVisible();
+    expect(requests.filter(request => request.path === 'conversations')).toMatchObject([
+      { body: { action: 'get', id: 'chat-restored' } },
+    ]);
+  });
+
+  it('对话历史：新建、切换、重命名与删除都在面板里完成', async () => {
+    const user = userEvent.setup();
+    await useLocalModel(user);
+    const dialog = await openTutor(user);
+    await ask(user, dialog, '第一段对话');
+
+    // 历史列表按最近使用排序，标题取第一条提问（按钮名字以标题开头，后面跟课程与条数）。
+    await user.click(within(dialog).getByRole('button', { name: '对话历史' }));
+    expect(within(dialog).getByRole('button', { name: /^第一段对话/ })).toBeVisible();
+
+    // 新建：面板回到欢迎态，历史里多出一段。
+    await user.click(within(dialog).getByRole('button', { name: '新建对话' }));
+    expect(within(dialog).getByText('先自己跑一遍，再来问为什么。')).toBeVisible();
+    await ask(user, dialog, '第二段对话');
+    await user.click(within(dialog).getByRole('button', { name: '对话历史' }));
+    expect(within(dialog).getByRole('button', { name: /^第一段对话/ })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: /^第二段对话/ })).toBeVisible();
+
+    // 切换：点回第一段，问题与回答都回来。
+    await user.click(within(dialog).getByRole('button', { name: /^第一段对话/ }));
+    await waitFor(() => expect(chatText()).toContain('第一段对话'));
+    expect(chatText()).toContain('连接成功，可以开始学习。');
+
+    // 重命名
+    await user.click(within(dialog).getByRole('button', { name: '对话历史' }));
+    await user.click(within(dialog).getByRole('button', { name: '重命名 第一段对话' }));
+    const name = within(dialog).getByRole('textbox', { name: '对话名称' });
+    await user.clear(name);
+    await user.type(name, '入口与变量');
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    expect(await within(dialog).findByRole('button', { name: /^入口与变量/ })).toBeVisible();
+    expect(requests.filter(request => request.path === 'conversations').at(-1)?.body).toMatchObject({
+      action: 'rename', title: '入口与变量',
+    });
+
+    // 删除要确认一次，删完落到剩下的一段。
+    await user.click(within(dialog).getByRole('button', { name: '删除 第二段对话' }));
+    await user.click(within(dialog).getByRole('button', { name: '确认删除' }));
+    await waitFor(() => expect(within(dialog).queryByRole('button', { name: /^第二段对话/ })).not.toBeInTheDocument());
+    expect(within(dialog).getByRole('button', { name: /^入口与变量/ })).toBeVisible();
+    expect(chats.map(chat => chat.title)).toEqual(['入口与变量']);
   });
 });

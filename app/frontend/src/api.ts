@@ -44,6 +44,7 @@ export interface Bootstrap {
   progress: Progress;
   settings: Settings;
   runtime: { platform: string; engine: string };
+  conversations: ConversationList;
 }
 export interface RunResult {
   output: string;
@@ -54,6 +55,26 @@ export interface RunResult {
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  /** 服务端记录的秒级时间戳；刚发出、还没写回去的消息没有这个字段。 */
+  at?: number;
+}
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  lessonId: string;
+  updatedAt: number;
+  messageCount: number;
+  preview: string;
+}
+export interface ConversationList {
+  activeId: string;
+  items: ConversationSummary[];
+}
+export interface Conversation extends ConversationSummary {
+  messages: Message[];
+}
+export interface ConversationPayload extends ConversationList {
+  conversation?: Conversation;
 }
 
 const incomingToken = new URLSearchParams(window.location.hash.slice(1)).get(

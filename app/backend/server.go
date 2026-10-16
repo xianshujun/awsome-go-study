@@ -133,7 +133,14 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/bootstrap":
 		s := e.store.snapshot()
-		writeJSON(w, 200, Bootstrap{e.courses, e.lessons, s.Progress, publicSettings(s.Settings), runtimeInfo()})
+		writeJSON(w, 200, Bootstrap{
+			Courses:       e.courses,
+			Lessons:       e.lessons,
+			Progress:      s.Progress,
+			Settings:      publicSettings(s.Settings),
+			Runtime:       runtimeInfo(),
+			Conversations: chatList(s, nil).ConversationList,
+		})
 	case "/api/run":
 		e.handleRun(w, r)
 	case "/api/progress":
@@ -142,6 +149,8 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.handleSettings(w, r)
 	case "/api/chat":
 		e.handleChat(w, r)
+	case "/api/conversations":
+		e.handleConversations(w, r)
 	case "/api/quit":
 		writeJSON(w, 200, map[string]string{"status": "stopping"})
 		e.requestQuit()

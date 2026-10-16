@@ -16,9 +16,20 @@ type storedSettings struct {
 	Model   string `json:"model"`
 	APIKey  string `json:"apiKey,omitempty"`
 }
+type conversation struct {
+	ID        string          `json:"id"`
+	Title     string          `json:"title"`
+	LessonID  string          `json:"lessonId"`
+	UpdatedAt int64           `json:"updatedAt"`
+	Messages  []StoredMessage `json:"messages"`
+}
 type state struct {
 	Progress Progress       `json:"progress"`
 	Settings storedSettings `json:"settings"`
+	// 对话与学习进度并列存放：它们同样是本机数据，但体量和大小的算法不同，
+	// 单独一份预算（见 conversations.go）比塞进 Progress 更好控制。
+	Conversations      []conversation `json:"conversations,omitempty"`
+	ActiveConversation string         `json:"activeConversation,omitempty"`
 }
 type store struct {
 	mu    sync.Mutex
@@ -71,6 +82,11 @@ func newStore(dir string) (*store, error) {
 	if s.value.Progress.Notes == nil {
 		s.value.Progress.Notes = map[string]string{}
 	}
+	// 用户手工编辑过、或被旧版本写大的对话记录，装载时先压回预算之内。
+	s.value.Conversations = trimConversations(s.value.Conversations)
+	if findChat(&s.value, s.value.ActiveConversation) < 0 {
+		s.value.ActiveConversation = ""
+	}
 	if err = os.Chmod(s.path, 0600); err != nil {
 		return nil, err
 	}
@@ -99,6 +115,12 @@ func cloneState(v state) state {
 		p.Notes[k] = x
 	}
 	v.Progress = p
+	chats := make([]conversation, 0, len(v.Conversations))
+	for _, c := range v.Conversations {
+		c.Messages = append([]StoredMessage{}, c.Messages...)
+		chats = append(chats, c)
+	}
+	v.Conversations = chats
 	return v
 }
 func (s *store) snapshot() state { s.mu.Lock(); defer s.mu.Unlock(); return cloneState(s.value) }

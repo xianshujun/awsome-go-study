@@ -53,6 +53,8 @@ type Bootstrap struct {
 	Progress Progress `json:"progress"`
 	Settings Settings `json:"settings"`
 	Runtime  Runtime  `json:"runtime"`
+	// 只带对话摘要；正文在打开某一段时单独取，首页不必背全部历史。
+	Conversations ConversationList `json:"conversations"`
 }
 
 func runtimeInfo() Runtime { return Runtime{Platform: runtime.GOOS, Engine: "yaegi"} }

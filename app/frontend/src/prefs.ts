@@ -60,3 +60,92 @@ export function useDisplayPrefs() {
 export function motionPolicy(reduceMotion: boolean | null) {
   return reduceMotion ? "always" : "user";
 }
+
+/* ---------------- AI 导师浮窗的位置与尺寸 ---------------- */
+
+/** 面板摆在哪里同样只是这台设备上的事，所以放在 localStorage，不进后端状态文件。 */
+const ASSISTANT_KEY = "gostudy-assistant-window";
+
+export const ASSISTANT_WINDOW = {
+  minWidth: 330,
+  maxWidth: 760,
+  minHeight: 300,
+  defaultWidth: 400,
+  defaultHeight: 560,
+  /** 浮窗离窗口边缘的空隙，也是拖动时不允许越过的边界。 */
+  margin: 14,
+} as const;
+
+/**
+ * 面板默认贴着顶栏下方的右侧停靠：页面内容会给它让出位置，
+ * 所以默认状态下它不会压住编辑器、运行按钮或测验。
+ * 拖走之后就变成普通浮窗，位置记在本机。
+ */
+export type AssistantWindow = {
+  docked: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+type Viewport = { width: number; height: number };
+
+function fitWidth(width: number, view: Viewport) {
+  const limitWidth = Math.max(ASSISTANT_WINDOW.minWidth, view.width - ASSISTANT_WINDOW.margin * 2);
+  return Math.min(Math.max(width, ASSISTANT_WINDOW.minWidth), Math.min(ASSISTANT_WINDOW.maxWidth, limitWidth));
+}
+
+export function dockedAssistantWindow(width: number, view: Viewport, topbar: number): AssistantWindow {
+  const top = topbar + ASSISTANT_WINDOW.margin;
+  const fitted = fitWidth(width, view);
+  return {
+    docked: true,
+    width: fitted,
+    height: Math.max(ASSISTANT_WINDOW.minHeight, view.height - top - ASSISTANT_WINDOW.margin),
+    x: view.width - fitted - ASSISTANT_WINDOW.margin,
+    y: top,
+  };
+}
+
+/** 把浮窗按视口夹回可见范围：换窗口大小、换显示器后都不会丢到屏幕外。 */
+export function clampAssistantWindow(win: AssistantWindow, view: Viewport): AssistantWindow {
+  const limitHeight = Math.max(ASSISTANT_WINDOW.minHeight, view.height - ASSISTANT_WINDOW.margin * 2);
+  const width = fitWidth(win.width, view);
+  const height = Math.min(Math.max(win.height, ASSISTANT_WINDOW.minHeight), limitHeight);
+  return {
+    docked: win.docked,
+    width,
+    height,
+    x: Math.min(Math.max(win.x, ASSISTANT_WINDOW.margin), Math.max(ASSISTANT_WINDOW.margin, view.width - width - ASSISTANT_WINDOW.margin)),
+    y: Math.min(Math.max(win.y, ASSISTANT_WINDOW.margin), Math.max(ASSISTANT_WINDOW.margin, view.height - height - ASSISTANT_WINDOW.margin)),
+  };
+}
+
+export function defaultAssistantWindow(view: Viewport, topbar: number): AssistantWindow {
+  return dockedAssistantWindow(ASSISTANT_WINDOW.defaultWidth, view, topbar);
+}
+
+export function readAssistantWindow(view: Viewport, topbar: number): AssistantWindow {
+  try {
+    const raw = localStorage.getItem(ASSISTANT_KEY);
+    if (!raw) return defaultAssistantWindow(view, topbar);
+    const parsed = JSON.parse(raw) as Partial<AssistantWindow>;
+    const width = typeof parsed.width === "number" && Number.isFinite(parsed.width) ? parsed.width : ASSISTANT_WINDOW.defaultWidth;
+    if (parsed.docked !== false) return dockedAssistantWindow(width, view, topbar);
+    const numbers = [parsed.x, parsed.y, parsed.height];
+    if (numbers.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      return defaultAssistantWindow(view, topbar);
+    }
+    return clampAssistantWindow({ docked: false, x: parsed.x!, y: parsed.y!, width, height: parsed.height! }, view);
+  } catch {
+    return defaultAssistantWindow(view, topbar);
+  }
+}
+
+export function saveAssistantWindow(win: AssistantWindow) {
+  try {
+    localStorage.setItem(ASSISTANT_KEY, JSON.stringify(win));
+  } catch {
+    // 存不下就只在本次会话里生效。
+  }
+}
