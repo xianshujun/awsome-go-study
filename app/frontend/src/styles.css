@@ -1748,32 +1748,36 @@ main.page {
   padding: 20px 0 4px;
   border-top: 1px solid var(--line-soft);
 }
-.choice-group { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 三选一和课程里的选项是同一套观感：同样的描边、圆角与字号，只多一个圆点。 */
+.choice-group { display: flex; gap: 9px; flex-wrap: wrap; }
 .choice {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 14px 8px 12px;
+  gap: 10px;
+  padding: 10px 15px 10px 13px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--card);
-  font-size: 13.5px;
+  font-size: 14.5px;
+  line-height: 1.6;
   color: var(--body-text);
   cursor: pointer;
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
 }
 .choice::before {
   content: "";
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   border: 1px solid var(--line);
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--card);
 }
 .choice:hover { border-color: #cdd4d5; background: var(--panel); }
 .choice[data-state="checked"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-soft); font-weight: 600; }
 .choice[data-state="checked"]::before { border: 4px solid var(--primary); background: var(--card); }
 .choice[data-disabled] { opacity: 0.6; cursor: default; }
+.confirm-card .small + .small { margin-top: 9px; }
 .confirm-card .error-box { margin-top: 14px; }
 .confirm-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
 .button.danger { background: var(--red); color: #fff; }

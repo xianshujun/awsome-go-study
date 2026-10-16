@@ -586,7 +586,7 @@ describe('学习空间的关键交互', () => {
     await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
     const group = screen.getByRole('radiogroup', { name: '关闭应用窗口时' });
     expect(within(group).getByRole('radio', { name: '每次问我' })).toBeChecked();
-    expect(screen.getByText(/窗口关掉之后弹一个询问框/)).toBeVisible();
+    expect(screen.getByText(/每次关窗口都弹一个询问框/)).toBeVisible();
 
     await user.click(within(group).getByRole('radio', { name: '后台静默运行' }));
     expect(await screen.findByText('关闭方式已保存。')).toBeVisible();
@@ -595,7 +595,7 @@ describe('学习空间的关键交互', () => {
     });
     expect(within(group).getByRole('radio', { name: '后台静默运行' })).toBeChecked();
     // 关窗口之后进程留着，说明文字要跟上。
-    expect(screen.getByText(/下次打开 GoStudy 直接连回它/)).toBeVisible();
+    expect(screen.getByText(/下次打开 GoStudy 会连回它/)).toBeVisible();
   });
 
   it('非 Windows 平台不提供关闭方式选项，按直接退出说明', async () => {

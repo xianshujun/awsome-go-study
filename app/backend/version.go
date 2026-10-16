@@ -9,13 +9,13 @@ import (
 /*
 Version 由构建脚本用 -ldflags 注入：
 
-	-X github.com/xianshujun/awsome-go-study/app/backend/Version=0.8.0
+	-X github.com/xianshujun/awsome-go-study/app/backend/Version=0.8.1
 
 源码里直接 go run 时是 dev，更新检查会跳过程序本身的比较（内容更新仍然可用）。
 */
 var Version = "dev"
 
-// parseVersion 把 v0.8.0 / 0.8.0 解析成可比较的数字；dev、带后缀的构建都返回 false。
+// parseVersion 把 v0.8.1 / 0.8.1 解析成可比较的数字；dev、带后缀的构建都返回 false。
 func parseVersion(raw string) ([3]int, bool) {
 	var out [3]int
 	raw = strings.TrimPrefix(strings.TrimSpace(raw), "v")

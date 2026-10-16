@@ -2612,8 +2612,8 @@ function Preferences({
 /* ---------------- 关闭与卸载 ---------------- */
 
 const CLOSE_OPTIONS: { value: CloseAction; label: string; hint: string }[] = [
-  { value: "ask", label: "每次问我", hint: "窗口关掉之后弹一个询问框，可以勾选不再提示。" },
-  { value: "background", label: "后台静默运行", hint: "窗口关掉、进程留着；下次打开 GoStudy 直接连回它。" },
+  { value: "ask", label: "每次问我", hint: "每次关窗口都弹一个询问框，可以勾选不再提示。" },
+  { value: "background", label: "后台静默运行", hint: "窗口关掉之后进程留着，下次打开 GoStudy 会连回它，不会再起第二个。" },
   { value: "quit", label: "直接退出程序", hint: "窗口关掉就结束进程，任务管理器里不会留下 GoStudy。" },
 ];
 
@@ -2681,10 +2681,7 @@ function CloseAndUninstallCard({
         <div className="choice-row">
           <div className="pref-copy">
             <strong>关闭应用窗口时</strong>
-            <p>
-              关掉浏览器窗口不会通知本地引擎，所以这里定下之后怎么办。
-              {CLOSE_OPTIONS.find((option) => option.value === action)?.hint}
-            </p>
+            <p>关掉应用窗口不会通知本地引擎，所以先在这里定好。{CLOSE_OPTIONS.find((option) => option.value === action)?.hint}</p>
           </div>
           <RadioGroup.Root
             className="choice-group"
@@ -2768,11 +2765,11 @@ function CloseAndUninstallCard({
                       </Dialog.Close>
                     </div>
                     <p className="small muted">
-                      接下来会启动卸载程序，删除程序文件与快捷方式。卸载程序开始之后 GoStudy
-                      会退出；学习进度、笔记与对话留在本机，卸载不会动它们。
+                      接下来会启动卸载程序，删掉程序文件、开始菜单与桌面快捷方式。
+                      学习进度、笔记与对话留在本机，卸载不会动它们。
                     </p>
                     <p className="small muted">
-                      如果中途取消卸载，重新打开 GoStudy 就能继续用，什么都不受影响。
+                      卸载程序开始后 GoStudy 会自己退出；中途取消也没关系，重新打开就能继续用。
                     </p>
                     {error && (
                       <div className="error-box" role="alert">
