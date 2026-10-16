@@ -6,7 +6,7 @@
 #   content.json  内容包清单：版本（内容哈希）、大小、sha256
 #
 # 用法（在仓库里执行）：
-#   bash app/scripts/make-update-manifest.sh --version 0.7.0 --dir app/release \
+#   bash app/scripts/make-update-manifest.sh --version 0.8.0 --dir app/release \
 #       --notes "本版修好了…" --out-dir app/release
 #
 # 说明：

@@ -15,6 +15,9 @@ type storedSettings struct {
 	BaseURL string `json:"baseUrl"`
 	Model   string `json:"model"`
 	APIKey  string `json:"apiKey,omitempty"`
+	// CloseAction 决定关闭应用窗口之后怎么处理：ask 询问、background 后台静默、quit 直接退出。
+	// 页面已经关掉的时候引擎还要读它，所以只能存在这份状态里，不能放浏览器 localStorage。
+	CloseAction string `json:"closeAction,omitempty"`
 }
 type conversation struct {
 	ID        string          `json:"id"`
@@ -167,5 +170,10 @@ func (s *store) update(change func(*state) error) (state, error) {
 	return cloneState(next), nil
 }
 func publicSettings(s storedSettings) Settings {
-	return Settings{BaseURL: s.BaseURL, Model: s.Model, HasKey: s.APIKey != ""}
+	return Settings{
+		BaseURL:     s.BaseURL,
+		Model:       s.Model,
+		HasKey:      s.APIKey != "",
+		CloseAction: normalizeCloseAction(s.CloseAction),
+	}
 }

@@ -564,7 +564,7 @@ func (e *Engine) applyUpdate() error {
 //	manual    —— 目录不可写，两者都做不了，让用户自己下载
 func installStrategy(executable string) string {
 	dir := filepath.Dir(executable)
-	if _, err := os.Stat(filepath.Join(dir, "unins000.exe")); err == nil {
+	if findUninstallerIn(dir) != "" {
 		return "installer"
 	}
 	if writableDir(dir) {

@@ -36,7 +36,7 @@ function bootstrap(progress: Partial<Progress> = {}): Bootstrap {
     courses: [{ id: 'basics', title: 'Go 语言基础', description: '从可运行的小程序开始。', level: '入门', duration: '13 分钟', lessonIds: lessons.map(lesson => lesson.id) }],
     lessons,
     progress: { completed: [], drafts: {}, notes: {}, lastLesson: '', ...progress },
-    settings: { baseUrl: 'https://api.example.com/v1', model: 'study-model', hasKey: false },
+    settings: { baseUrl: 'https://api.example.com/v1', model: 'study-model', hasKey: false, closeAction: 'ask' as const },
     runtime: { platform: 'linux/amd64', engine: '受限解释器', version: '0.7.0' },
     conversations: { activeId: '', items: [] },
   };
@@ -190,9 +190,17 @@ beforeEach(() => {
         baseUrl: body.baseUrl ?? state.settings.baseUrl,
         model: body.model ?? state.settings.model,
         hasKey: body.clearKey ? false : Boolean(body.apiKey || state.settings.hasKey),
+        closeAction: state.settings.closeAction,
       } satisfies Settings;
       return json(state.settings);
     }
+    if (path === 'close-behavior' && body) {
+      state.settings = { ...state.settings, closeAction: body.action as Settings['closeAction'] };
+      return json(state.settings);
+    }
+    if (path === 'uninstall') return json({ status: 'uninstalling' });
+    // 页面关闭时的报信：正常走 sendBeacon，个别浏览器退回 fetch。
+    if (path.startsWith('window-closed')) return json({ status: 'noted' });
     if (path === 'chat') return json({ reply: '连接成功，可以开始学习。' });
     if (path === 'update' && body) return json(updatesAPI(body));
     throw new Error(`未预期的请求：${path}`);
@@ -529,8 +537,7 @@ describe('学习空间的关键交互', () => {
     await waitFor(() => expect(updateRequests.some(request => request.action === 'content')).toBe(true));
   });
 
-  it('对话历史：新建、切换、重命名与删除都在面板里完成', async () => {
-    const user = userEvent.setup();
+  it('对话历史：新建、切换、重命名与删除都在面板里完成', async () => {    const user = userEvent.setup();
     await useLocalModel(user);
     const dialog = await openTutor(user);
     await ask(user, dialog, '第一段对话');
@@ -570,5 +577,81 @@ describe('学习空间的关键交互', () => {
     await waitFor(() => expect(within(dialog).queryByRole('button', { name: /^第二段对话/ })).not.toBeInTheDocument());
     expect(within(dialog).getByRole('button', { name: /^入口与变量/ })).toBeVisible();
     expect(chats.map(chat => chat.title)).toEqual(['入口与变量']);
+  });
+
+  it('Windows 上可以选关闭窗口后的行为，选择写回引擎', async () => {
+    state.runtime = { platform: 'windows', engine: '受限解释器', version: '0.7.0', closePrompt: true };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    const group = screen.getByRole('radiogroup', { name: '关闭应用窗口时' });
+    expect(within(group).getByRole('radio', { name: '每次问我' })).toBeChecked();
+    expect(screen.getByText(/窗口关掉之后弹一个询问框/)).toBeVisible();
+
+    await user.click(within(group).getByRole('radio', { name: '后台静默运行' }));
+    expect(await screen.findByText('关闭方式已保存。')).toBeVisible();
+    expect(requests.find(request => request.path === 'close-behavior')).toMatchObject({
+      body: { action: 'background' }, authorization: 'Bearer test-session-token',
+    });
+    expect(within(group).getByRole('radio', { name: '后台静默运行' })).toBeChecked();
+    // 关窗口之后进程留着，说明文字要跟上。
+    expect(screen.getByText(/下次打开 GoStudy 直接连回它/)).toBeVisible();
+  });
+
+  it('非 Windows 平台不提供关闭方式选项，按直接退出说明', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    expect(screen.queryByRole('radiogroup', { name: '关闭应用窗口时' })).not.toBeInTheDocument();
+    expect(screen.getByText(/这个平台关掉窗口之后会直接结束进程/)).toBeVisible();
+    expect(requests.every(request => request.path !== 'close-behavior')).toBe(true);
+  });
+
+  it('卸载要先确认一次，确认后进入卸载提示页', async () => {
+    state.runtime = { platform: 'windows', engine: '受限解释器', version: '0.7.0', closePrompt: true, canUninstall: true };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    await user.click(screen.getByRole('button', { name: '卸载' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '卸载 GoStudy' });
+    expect(within(dialog).getByText(/卸载不会动它们/)).toBeVisible();
+    // 先关掉再打开一次，确认没有意外发起卸载。
+    await user.click(within(dialog).getByRole('button', { name: '先不卸载' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '卸载 GoStudy' })).not.toBeInTheDocument());
+    expect(requests.every(request => request.path !== 'uninstall')).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: '卸载' }));
+    await user.click(await within(await screen.findByRole('dialog', { name: '卸载 GoStudy' })).findByRole('button', { name: '确认卸载' }));
+    await waitFor(() => expect(requests.some(request => request.path === 'uninstall')).toBe(true));
+    expect(await screen.findByText('正在卸载 GoStudy')).toBeVisible();
+  });
+
+  it('免安装版没有卸载入口', async () => {
+    state.runtime = { platform: 'windows', engine: '受限解释器', version: '0.7.0', closePrompt: true };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    expect(screen.queryByRole('button', { name: '卸载' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '退出 GoStudy' })).toBeVisible();
+  });
+
+  it('关窗口时用 sendBeacon 报信，带不出 request 头的老浏览器退回 fetch', async () => {
+    const beacon = vi.fn().mockReturnValue(true);
+    Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: beacon });
+    try {
+      render(<App />);
+      await screen.findByRole('button', { name: '开始第一课' });
+      window.dispatchEvent(new Event('pagehide'));
+      expect(beacon).toHaveBeenCalledTimes(1);
+      expect(String(beacon.mock.calls[0][0])).toBe('/api/window-closed?token=test-session-token');
+
+      // sendBeacon 用不了时（个别内嵌浏览器）走 keepalive fetch。
+      beacon.mockReturnValue(false);
+      window.dispatchEvent(new Event('pagehide'));
+      await waitFor(() => expect(requests.some(request => request.path.startsWith('window-closed'))).toBe(true));
+    } finally {
+      Reflect.deleteProperty(navigator, 'sendBeacon');
+    }
   });
 });

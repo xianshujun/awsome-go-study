@@ -1737,6 +1737,47 @@ main.page {
 .quit-row strong { font-size: 14.5px; font-weight: 600; color: var(--ink); }
 .quit-row p { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
 .quit-row .button { margin-left: auto; flex-shrink: 0; }
+.button.secondary.uninstall { color: var(--red); }
+.button.secondary.uninstall:hover:not(:disabled) { border-color: var(--red); background: var(--red-soft); }
+
+/* ---------- 设置 · 关闭与卸载 ---------- */
+.choice-row {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 0 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.choice-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: 13.5px;
+  color: var(--body-text);
+  cursor: pointer;
+}
+.choice::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+}
+.choice:hover { border-color: #cdd4d5; background: var(--panel); }
+.choice[data-state="checked"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-soft); font-weight: 600; }
+.choice[data-state="checked"]::before { border: 4px solid var(--primary); background: var(--card); }
+.choice[data-disabled] { opacity: 0.6; cursor: default; }
+.confirm-card .error-box { margin-top: 14px; }
+.confirm-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.button.danger { background: var(--red); color: #fff; }
+.button.danger:hover:not(:disabled) { background: #8d2939; }
 
 /* ---------- 显示偏好 ---------- */
 .pref-list { display: flex; flex-direction: column; padding-top: 20px; border-top: 1px solid var(--line-soft); }

@@ -57,10 +57,11 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { api } from "./api";
+import { api, reportWindowClosed } from "./api";
 import { editorTheme } from "./editor";
 import type {
   Bootstrap,
+  CloseAction,
   Course,
   Lesson,
   Progress,
@@ -221,6 +222,7 @@ export function App() {
   const [assistantCode, setAssistantCode] = useState<string>();
   const [toast, setToast] = useState("");
   const [quit, setQuit] = useState(false);
+  const [uninstalling, setUninstalling] = useState(false);
   const tutor = useTutor();
   const hydrateTutor = tutor.hydrate;
   const { prefs, update } = useDisplayPrefs();
@@ -243,6 +245,12 @@ export function App() {
       .catch((error) => setLoadingError(error.message));
   }, []);
   useEffect(load, [load]);
+  // 关闭或刷新页面时告诉本地引擎一声：窗口关掉之后是要顺带结束进程、留在后台，
+  // 还是弹一次询问框，由引擎按设置决定（刷新不算关闭，引擎会等页面回来）。
+  useEffect(() => {
+    window.addEventListener("pagehide", reportWindowClosed);
+    return () => window.removeEventListener("pagehide", reportWindowClosed);
+  }, []);
   // bootstrap 回来后再恢复上次的对话：面板在没打开时就已经准备好了内容。
   useEffect(() => hydrateTutor(data?.conversations), [data?.conversations, hydrateTutor]);
   const openLesson = (id: string) => {
@@ -275,7 +283,12 @@ export function App() {
   return (
     <MotionConfig reducedMotion={motionPolicy(reduce)}>
       <Tooltip.Provider delayDuration={350} skipDelayDuration={200}>
-        {quit ? (
+        {uninstalling ? (
+          <BootScreen
+            title="正在卸载 GoStudy"
+            description="卸载程序已经启动，请在弹出的窗口里完成卸载。学习进度、笔记与对话都留在本机，卸载不会删除它们；如果中途取消，重新打开 GoStudy 即可继续使用。"
+          />
+        ) : quit ? (
           <BootScreen
             title="GoStudy 已退出"
             description="本地学习引擎已经停止，现在可以关闭这个窗口。下次打开应用会重新启动引擎。"
@@ -305,6 +318,7 @@ export function App() {
             onSettings={updateSettings}
             onNotify={notify}
             onQuit={quitApp}
+            onUninstalling={() => setUninstalling(true)}
             prefs={prefs}
             onPrefs={update}
           />
@@ -344,6 +358,7 @@ function Shell({
   onSettings,
   onNotify,
   onQuit,
+  onUninstalling,
   prefs,
   onPrefs,
   onCodeChange,
@@ -364,6 +379,7 @@ function Shell({
   onSettings: (settings: Settings) => void;
   onNotify: (text: string) => void;
   onQuit: () => void;
+  onUninstalling: () => void;
   prefs: { reduceMotion: boolean | null; editorSize: number; autoUpdate: boolean };
   onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number; autoUpdate?: boolean }) => void;
 }) {
@@ -684,6 +700,7 @@ function Shell({
               onNotify={onNotify}
               runtime={data.runtime}
               onQuit={onQuit}
+              onUninstalling={onUninstalling}
               prefs={prefs}
               onPrefs={onPrefs}
               updater={updater}
@@ -2357,6 +2374,7 @@ function Preferences({
   onNotify,
   runtime,
   onQuit,
+  onUninstalling,
   prefs,
   onPrefs,
   updater,
@@ -2367,6 +2385,7 @@ function Preferences({
   onNotify: (s: string) => void;
   runtime: Bootstrap["runtime"];
   onQuit: () => void;
+  onUninstalling: () => void;
   prefs: { reduceMotion: boolean | null; editorSize: number; autoUpdate: boolean };
   onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number; autoUpdate?: boolean }) => void;
   updater: Updater;
@@ -2379,7 +2398,6 @@ function Preferences({
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState("");
-  const desktop = !/android|ios/i.test(runtime.platform);
   const submit = async (clearKey = false) => {
     setSaving(true);
     setError("");
@@ -2576,21 +2594,210 @@ function Preferences({
             <strong>GoStudy {runtime.version || "dev"}</strong>
           </div>
         </div>
-        {desktop && (
-          <div className="quit-row">
-            <div>
-              <strong>退出 GoStudy</strong>
-              <p>停止本机学习引擎。关闭浏览器窗口不会自动退出应用。</p>
-            </div>
-            <button className="button secondary" onClick={() => void onQuit()}>
-              <Power size={16} />
-              退出 GoStudy
-            </button>
-          </div>
-        )}
       </motion.section>
+      <CloseAndUninstallCard
+        settings={settings}
+        runtime={runtime}
+        onSave={onSave}
+        onNotify={onNotify}
+        onQuit={onQuit}
+        onUninstalling={onUninstalling}
+        motionOn={motionOn}
+      />
       <Footer />
     </>
+  );
+}
+
+/* ---------------- 关闭与卸载 ---------------- */
+
+const CLOSE_OPTIONS: { value: CloseAction; label: string; hint: string }[] = [
+  { value: "ask", label: "每次问我", hint: "窗口关掉之后弹一个询问框，可以勾选不再提示。" },
+  { value: "background", label: "后台静默运行", hint: "窗口关掉、进程留着；下次打开 GoStudy 直接连回它。" },
+  { value: "quit", label: "直接退出程序", hint: "窗口关掉就结束进程，任务管理器里不会留下 GoStudy。" },
+];
+
+function CloseAndUninstallCard({
+  settings,
+  runtime,
+  onSave,
+  onNotify,
+  onQuit,
+  onUninstalling,
+  motionOn,
+}: {
+  settings: Settings;
+  runtime: Bootstrap["runtime"];
+  onSave: (settings: Settings) => void;
+  onNotify: (text: string) => void;
+  onQuit: () => void;
+  onUninstalling: () => void;
+  motionOn: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const desktop = !/android|ios/i.test(runtime.platform);
+  const action = settings.closeAction ?? "ask";
+  const changeCloseAction = async (value: CloseAction) => {
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await api<Settings>("close-behavior", { action: value });
+      onSave(updated);
+      onNotify("关闭方式已保存。");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const uninstall = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api<{ status: string }>("uninstall", {});
+      // 引擎随后会关掉窗口、退出进程，让卸载程序能删掉程序文件。
+      setConfirming(false);
+      onUninstalling();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+  if (!desktop) return null;
+  return (
+    <motion.section className="settings-card" {...rise(motionOn, 4)}>
+      <div className="settings-card-heading">
+        <div className="course-icon">
+          <Power size={22} />
+        </div>
+        <div>
+          <h2>关闭与卸载</h2>
+          <p>关掉应用窗口之后怎么收尾，以及在这台设备上退出或卸载 GoStudy。</p>
+        </div>
+      </div>
+      {runtime.closePrompt ? (
+        <div className="choice-row">
+          <div className="pref-copy">
+            <strong>关闭应用窗口时</strong>
+            <p>
+              关掉浏览器窗口不会通知本地引擎，所以这里定下之后怎么办。
+              {CLOSE_OPTIONS.find((option) => option.value === action)?.hint}
+            </p>
+          </div>
+          <RadioGroup.Root
+            className="choice-group"
+            aria-label="关闭应用窗口时"
+            value={action}
+            disabled={busy}
+            onValueChange={(value) => void changeCloseAction(value as CloseAction)}
+          >
+            {CLOSE_OPTIONS.map((option) => (
+              <RadioGroup.Item key={option.value} value={option.value} className="choice">
+                {option.label}
+              </RadioGroup.Item>
+            ))}
+          </RadioGroup.Root>
+        </div>
+      ) : (
+        <p className="small muted">
+          这个平台关掉窗口之后会直接结束进程；后台静默运行与关闭提示由 Windows 版提供。
+        </p>
+      )}
+      <div className="quit-row">
+        <div>
+          <strong>退出 GoStudy</strong>
+          <p>立刻停止本机学习引擎并结束进程。学习进度与对话都已经写在磁盘上，重新打开就在。</p>
+        </div>
+        <button className="button secondary" onClick={() => void onQuit()}>
+          <Power size={16} />
+          退出 GoStudy
+        </button>
+      </div>
+      {runtime.canUninstall && (
+        <div className="quit-row">
+          <div>
+            <strong>卸载 GoStudy</strong>
+            <p>
+              删掉程序文件、开始菜单与桌面快捷方式。学习进度、笔记与对话保存在用户配置目录，
+              卸载不会删除它们。
+            </p>
+          </div>
+          <button
+            className="button secondary uninstall"
+            onClick={() => {
+              setError("");
+              setConfirming(true);
+            }}
+          >
+            <Trash2 size={16} />
+            卸载
+          </button>
+        </div>
+      )}
+      {error && !confirming && (
+        <div className="error-box" role="alert">
+          {error}
+        </div>
+      )}
+      <AnimatePresence>
+        {confirming && (
+          <Dialog.Root open onOpenChange={(open) => !open && setConfirming(false)} modal>
+            <Dialog.Portal forceMount>
+              <Dialog.Content asChild forceMount aria-label="确认卸载 GoStudy">
+                <motion.div
+                  className="export-dialog"
+                  initial={motionOn ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <motion.div
+                    className="export-card confirm-card"
+                    variants={dialogVariants}
+                    initial={motionOn ? "hidden" : false}
+                    animate="shown"
+                    exit="out"
+                  >
+                    <div className="section-head">
+                      <Dialog.Title>卸载 GoStudy</Dialog.Title>
+                      <Dialog.Close asChild>
+                        <button className="icon-button" aria-label="关闭卸载确认">
+                          <X size={20} />
+                        </button>
+                      </Dialog.Close>
+                    </div>
+                    <p className="small muted">
+                      接下来会启动卸载程序，删除程序文件与快捷方式。卸载程序开始之后 GoStudy
+                      会退出；学习进度、笔记与对话留在本机，卸载不会动它们。
+                    </p>
+                    <p className="small muted">
+                      如果中途取消卸载，重新打开 GoStudy 就能继续用，什么都不受影响。
+                    </p>
+                    {error && (
+                      <div className="error-box" role="alert">
+                        {error}
+                      </div>
+                    )}
+                    <div className="confirm-actions">
+                      <button className="button danger" disabled={busy} onClick={() => void uninstall()}>
+                        {busy ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                        确认卸载
+                      </button>
+                      <Dialog.Close asChild>
+                        <button className="button secondary" disabled={busy}>
+                          先不卸载
+                        </button>
+                      </Dialog.Close>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+      </AnimatePresence>
+    </motion.section>
   );
 }
 

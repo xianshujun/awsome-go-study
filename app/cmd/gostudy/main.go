@@ -20,7 +20,7 @@ import (
 	"github.com/xianshujun/awsome-go-study/app/web"
 )
 
-// version 由构建脚本注入：-X .../app/backend.Version=0.7.0。
+// version 由构建脚本注入：-X .../app/backend.Version=0.8.0。
 // 直接 go run 的源码构建是 dev，更新检查会跳过程序本身的比较。
 var version = backend.Version
 
@@ -66,12 +66,23 @@ func main() {
 		return
 	}
 
+	/*
+		单实例：同一份学习数据只让一个进程用。
+		更新重启（带 -cleanup）时跳过这步——那一刻旧进程还在退出，探活一定会探到它，
+		跳过才能让新版本顺利接管。
+	*/
+	instancePath := instanceFile(*dataDir)
+	if *cleanup == "" && instancePath != "" && handleExistingInstance(instancePath, !*noBrowser, version, log) {
+		log.write("已有实例在运行，本次启动结束")
+		return
+	}
+
 	// 逐步记录，任何一步失败或被杀掉都能从日志看出停在哪里。
 	log.write("步骤 1/3：准备前端资源")
 	handler := web.Handler()
 	log.write("步骤 1/3：完成")
 	log.write("步骤 2/3：启动本地引擎（监听 %s）", *addr)
-	server, err := backend.Start(backend.Options{Addr: *addr, DataDir: *dataDir}, handler)
+	server, err := backend.Start(backend.Options{Addr: *addr, DataDir: *dataDir, Logf: log.write}, handler)
 	if err != nil {
 		log.write("步骤 2/3：失败：%v", err)
 		reportProblem("GoStudy 启动失败", "本地学习引擎无法启动：\n"+err.Error()+"\n\n详细日志："+log.path)
@@ -81,6 +92,16 @@ func main() {
 	log.write("步骤 2/3：完成，监听 %s", server.URL())
 	fmt.Println("GoStudy 已启动。关闭本窗口或按 Ctrl+C 可退出。")
 	fmt.Println(server.URL())
+
+	// 记下这次的地址与凭据：下次双击 GoStudy 时先认这个文件，不再另起一个进程。
+	record := instanceInfo{ID: newInstanceID(), PID: os.Getpid(), URL: server.URL(), Version: version, Started: time.Now().Unix()}
+	if instancePath != "" {
+		if err := writeInstance(instancePath, record); err != nil {
+			log.write("写入实例文件失败（不影响使用）：%v", err)
+		} else {
+			defer removeInstance(instancePath, record.ID)
+		}
+	}
 
 	if !*noBrowser {
 		log.write("步骤 3/3：打开应用窗口")

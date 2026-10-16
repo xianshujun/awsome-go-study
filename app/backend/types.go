@@ -44,6 +44,8 @@ type Settings struct {
 	BaseURL string `json:"baseUrl"`
 	Model   string `json:"model"`
 	HasKey  bool   `json:"hasKey"`
+	// CloseAction 是关掉应用窗口之后的行为：ask 询问 / background 后台静默 / quit 直接退出。
+	CloseAction string `json:"closeAction"`
 }
 type Runtime struct {
 	Platform string `json:"platform"`
@@ -51,6 +53,10 @@ type Runtime struct {
 	// Version 是当前构建的版本号，Content 是已应用的课程内容包版本（没有则为空）。
 	Version string `json:"version"`
 	Content string `json:"content,omitempty"`
+	// ClosePrompt 表示窗口关掉之后还能弹一次询问框（目前只有 Windows 有）。
+	ClosePrompt bool `json:"closePrompt,omitempty"`
+	// CanUninstall 表示程序目录里有 Inno 卸载程序，可以在应用内直接发起卸载。
+	CanUninstall bool `json:"canUninstall,omitempty"`
 }
 type Bootstrap struct {
 	Courses  []Course `json:"courses"`

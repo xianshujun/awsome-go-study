@@ -29,6 +29,12 @@ type Options struct {
 	AITimeout  time.Duration
 	// Platform 供更新逻辑挑选产物；留空按 runtime.GOOS，Android 外壳显式传 "android"。
 	Platform string
+	// CloseGrace 是页面关掉之后等"页面是否又回来"的时间；留空用 defaultCloseGrace。
+	CloseGrace time.Duration
+	// AskClose 是关闭窗口后问用户的方式；留空弹系统询问框，测试里换成固定答案。
+	AskClose func() CloseAnswer
+	// Logf 把引擎里的关键动作写进启动日志；留空就不记。
+	Logf func(format string, args ...any)
 }
 type proof struct {
 	hash       [32]byte
@@ -63,6 +69,16 @@ type Engine struct {
 	frontend     http.Handler
 	quit         chan struct{}
 	quitOnce     sync.Once
+	// 窗口关闭相关：页面在线状态、宽限计时器、询问方式。
+	pageMu     sync.Mutex
+	pageOpen   bool
+	closeTimer *time.Timer
+	closeGrace time.Duration
+	askClose   func() CloseAnswer
+	// logf 由启动器接上，用来把"窗口关了、按设置退出"这类动作写进启动日志。
+	logf func(format string, args ...any)
+	// uninstaller 是程序目录里的 Inno 卸载程序路径，空表示当前是免安装版。
+	uninstaller string
 }
 
 func New(opts Options, frontend http.Handler) (*Engine, error) {
@@ -87,6 +103,14 @@ func New(opts Options, frontend http.Handler) (*Engine, error) {
 	if platform == "" {
 		platform = runtime.GOOS
 	}
+	grace := opts.CloseGrace
+	if grace <= 0 {
+		grace = defaultCloseGrace
+	}
+	askClose := opts.AskClose
+	if askClose == nil {
+		askClose = askCloseBehavior
+	}
 	e := &Engine{
 		token:        hex.EncodeToString(secret),
 		store:        s,
@@ -102,6 +126,13 @@ func New(opts Options, frontend http.Handler) (*Engine, error) {
 		downloads:    &downloader{},
 		frontend:     frontend,
 		quit:         make(chan struct{}),
+		closeGrace:   grace,
+		askClose:     askClose,
+		logf:         opts.Logf,
+		uninstaller:  findUninstaller(platform),
+		// 启动器紧接着就会打开应用窗口，所以先按"窗口开着"记账：页面被关掉时会
+		// 明确报信，那时才改成已关闭；单实例判断也读它。
+		pageOpen: true,
 	}
 	e.cur.Store(newCurriculum(courses, lessons, warnings))
 	return e, nil
@@ -166,13 +197,21 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.frontend.ServeHTTP(w, r)
 		return
 	}
-	supplied := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if len(supplied) != len(e.token) || subtle.ConstantTimeCompare([]byte(supplied), []byte(e.token)) != 1 || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+	supplied, ok := e.credential(r)
+	if !ok || len(supplied) != len(e.token) || subtle.ConstantTimeCompare([]byte(supplied), []byte(e.token)) != 1 {
 		writeError(w, http.StatusUnauthorized, "本地访问凭据无效，请使用启动器提供的地址")
 		return
 	}
+	// 只有页面自己发的请求才算"页面还在"：页面关闭时报的信、以及启动器用来探活的
+	// /api/status 都不算，否则探活会把已经关掉的窗口重新标成在线。
+	switch r.URL.Path {
+	case "/api/window-closed", "/api/status":
+	default:
+		e.pageActivity()
+	}
 	want := http.MethodPost
-	if r.URL.Path == "/api/bootstrap" {
+	switch r.URL.Path {
+	case "/api/bootstrap", "/api/status":
 		want = http.MethodGet
 	}
 	if r.Method != want {
@@ -180,11 +219,16 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "不支持此请求方法")
 		return
 	}
-	if want == http.MethodPost && r.URL.Path != "/api/reset" && r.URL.Path != "/api/quit" {
-		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if err != nil || media != "application/json" {
-			writeError(w, 415, "请使用 application/json 请求体")
-			return
+	switch r.URL.Path {
+	case "/api/reset", "/api/quit", "/api/window-closed":
+		// 这几个接口不带请求体，不做 JSON 校验。
+	default:
+		if want == http.MethodPost {
+			media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || media != "application/json" {
+				writeError(w, 415, "请使用 application/json 请求体")
+				return
+			}
 		}
 	}
 	switch r.URL.Path {
@@ -192,13 +236,34 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s := e.store.snapshot()
 		cur := e.curriculumSnapshot()
 		writeJSON(w, 200, Bootstrap{
-			Courses:       cur.courses,
-			Lessons:       cur.lessons,
-			Progress:      s.Progress,
-			Settings:      publicSettings(s.Settings),
-			Runtime:       Runtime{Platform: runtimePlatform(), Engine: "yaegi", Version: versionInfo(), Content: e.contentVersion()},
+			Courses:  cur.courses,
+			Lessons:  cur.lessons,
+			Progress: s.Progress,
+			Settings: publicSettings(s.Settings),
+			Runtime: Runtime{
+				Platform:     runtimePlatform(),
+				Engine:       "yaegi",
+				Version:      versionInfo(),
+				Content:      e.contentVersion(),
+				ClosePrompt:  closePromptAvailable(),
+				CanUninstall: e.uninstaller != "",
+			},
 			Conversations: chatList(s, nil).ConversationList,
 		})
+	case "/api/status":
+		// 给启动器探活用的最小响应：有没有实例在跑、它的窗口还开着吗。
+		writeJSON(w, 200, map[string]any{
+			"status":     "ok",
+			"version":    versionInfo(),
+			"windowOpen": e.WindowOpen(),
+		})
+	case "/api/window-closed":
+		writeJSON(w, 200, map[string]string{"status": "noted"})
+		e.windowClosed()
+	case "/api/close-behavior":
+		e.handleCloseBehavior(w, r)
+	case "/api/uninstall":
+		e.handleUninstall(w, r)
 	case "/api/run":
 		e.handleRun(w, r)
 	case "/api/progress":
@@ -228,6 +293,23 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "接口不存在")
 	}
 }
+
+/*
+credential 取出请求里的本地凭据。
+
+页面在关闭那一瞬间用 sendBeacon 报信，而 sendBeacon 带不了自定义请求头，
+所以只有这一个接口允许把凭据放在查询串里；其余接口一律只认 Authorization。
+*/
+func (e *Engine) credential(r *http.Request) (string, bool) {
+	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
+		return strings.TrimPrefix(header, "Bearer "), true
+	}
+	if r.URL.Path == "/api/window-closed" && r.Method == http.MethodPost {
+		return r.URL.Query().Get("token"), true
+	}
+	return "", false
+}
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	d := json.NewDecoder(r.Body)
