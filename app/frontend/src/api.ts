@@ -43,7 +43,7 @@ export interface Bootstrap {
   lessons: Lesson[];
   progress: Progress;
   settings: Settings;
-  runtime: { platform: string; engine: string };
+  runtime: { platform: string; engine: string; version: string; content?: string };
   conversations: ConversationList;
 }
 export interface RunResult {
@@ -75,6 +75,39 @@ export interface Conversation extends ConversationSummary {
 }
 export interface ConversationPayload extends ConversationList {
   conversation?: Conversation;
+}
+export interface UpdateOffer {
+  version: string;
+  released?: string;
+  notes?: string;
+  size: number;
+  asset: string;
+}
+export interface ContentOffer {
+  version: string;
+  size: number;
+  notes?: string;
+  current?: string;
+}
+export interface UpdateStatus {
+  current: string;
+  content?: string;
+  app?: UpdateOffer;
+  contentUpdate?: ContentOffer;
+  checked: number;
+  skipped?: boolean;
+  error?: string;
+  warning?: string;
+}
+export type DownloadStage = "idle" | "downloading" | "verifying" | "ready" | "failed";
+export interface DownloadState {
+  state: DownloadStage;
+  received: number;
+  total: number;
+  asset?: string;
+  error?: string;
+  /** 拿到包之后该做什么：桌面重启、Android 交给系统安装器。 */
+  mode?: "restart" | "android" | "content" | "installer";
 }
 
 const incomingToken = new URLSearchParams(window.location.hash.slice(1)).get(

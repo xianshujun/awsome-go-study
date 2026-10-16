@@ -37,7 +37,7 @@ function bootstrap(progress: Partial<Progress> = {}): Bootstrap {
     lessons,
     progress: { completed: [], drafts: {}, notes: {}, lastLesson: '', ...progress },
     settings: { baseUrl: 'https://api.example.com/v1', model: 'study-model', hasKey: false },
-    runtime: { platform: 'linux/amd64', engine: '受限解释器' },
+    runtime: { platform: 'linux/amd64', engine: '受限解释器', version: '0.7.0' },
     conversations: { activeId: '', items: [] },
   };
 }
@@ -62,6 +62,36 @@ function chatSummary(chat: StoredChat): ConversationSummary {
     id: chat.id, title: chat.title, lessonId: chat.lessonId, updatedAt: chat.updatedAt,
     messageCount: chat.messages.length, preview: chat.messages.at(-1)?.content.slice(0, 60) ?? '',
   };
+}
+
+type UpdateBody = { action?: string; auto?: boolean; prefer?: string };
+let updateStatus: Record<string, unknown>;
+let updateProgress: Record<string, unknown>;
+let updateRequests: UpdateBody[];
+let progressCalls: number;
+
+/** 更新接口的最小实现：检查、下载、安装各返回一个可断言的状态。 */
+function updatesAPI(body: RequestBody): unknown {
+  updateRequests.push(body as UpdateBody);
+  switch (body.action) {
+    case 'check':
+      return { ...updateStatus, skipped: false, checked: 1000 };
+    case 'download':
+      updateProgress = { state: 'downloading', received: 1024, total: 4096, asset: 'GoStudy-linux-amd64' };
+      return updateProgress;
+    case 'progress':
+      // 轮询一次之后就当作下载完，模拟"下好并校验通过"。
+      if (++progressCalls > 1) {
+        updateProgress = { state: 'ready', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart' };
+      }
+      return updateProgress;
+    case 'install':
+      return { ...updateProgress, state: 'ready', mode: 'restart' };
+    case 'content':
+      return { version: 'content-2', content: 'content-2', warning: '' };
+    default:
+      return { error: '未知的更新操作' };
+  }
 }
 
 /** 服务端对话接口的最小实现：够验证"内容真的写回去了"就行。 */
@@ -130,6 +160,10 @@ beforeEach(() => {
   chats = [];
   activeChat = '';
   clock = 1000;
+  updateRequests = [];
+  progressCalls = 0;
+  updateProgress = { state: 'idle', received: 0, total: 0 };
+  updateStatus = { current: '0.7.0', content: '' };
   sessionStorage.setItem('gostudy-token', 'test-session-token');
   runResponse = async () => json({ output: 'Hello, Go!\n', passed: true, durationMs: 3 } satisfies RunResult);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -160,6 +194,7 @@ beforeEach(() => {
       return json(state.settings);
     }
     if (path === 'chat') return json({ reply: '连接成功，可以开始学习。' });
+    if (path === 'update' && body) return json(updatesAPI(body));
     throw new Error(`未预期的请求：${path}`);
   });
 });
@@ -437,6 +472,61 @@ describe('学习空间的关键交互', () => {
     expect(requests.filter(request => request.path === 'conversations')).toMatchObject([
       { body: { action: 'get', id: 'chat-restored' } },
     ]);
+  });
+
+  it('设置页能检查、下载并安装新版本，进度按轮询推进', async () => {
+    updateStatus = {
+      current: '0.7.0', content: '', checked: 1000,
+      app: { version: '0.8.0', released: '2026-10-20', notes: '修好了下载与校验流程', size: 12582912, asset: 'GoStudy-linux-amd64' },
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    // 顶栏设置按钮带小红点，提示有新版本
+    const gear = await screen.findByRole('button', { name: '偏好与 AI 设置' });
+    expect(gear).toHaveAttribute('title', '有新版本可以更新');
+    await user.click(gear);
+
+    // 挂载时的自动检查带 auto 标记，手动检查不带
+    expect(updateRequests.some(request => request.action === 'check' && request.auto === true)).toBe(true);
+    expect(await screen.findByText('有新版本 0.8.0')).toBeVisible();
+    expect(screen.getByText('新版本 0.8.0 · 2026-10-20')).toBeVisible();
+    expect(screen.getByText('修好了下载与校验流程')).toBeVisible();
+    expect(screen.getByText('12.0 MB')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: /检查更新/ }));
+    await waitFor(() => expect(updateRequests.some(request => request.action === 'check' && request.auto === false)).toBe(true));
+
+    await user.click(screen.getByRole('button', { name: /下载并安装 0.8.0/ }));
+    expect(updateRequests.some(request => request.action === 'download' && request.prefer !== undefined)).toBe(true);
+    // 轮询把状态推进到"已就绪"，再点一次就发起安装
+    await user.click(await screen.findByRole('button', { name: '立即重启并更新' }, { timeout: 3000 }));
+    expect(updateRequests.some(request => request.action === 'install')).toBe(true);
+  });
+
+  it('关掉自动检查后不再自动联网，手动检查仍然可用', async () => {
+    localStorage.setItem('gostudy-display', JSON.stringify({ reduceMotion: null, editorSize: 14, autoUpdate: false }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    expect(updateRequests.filter(request => request.action === 'check')).toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: /检查更新/ }));
+    await waitFor(() => expect(updateRequests.some(request => request.action === 'check')).toBe(true));
+    const toggle = screen.getByRole('switch', { name: '每天自动检查一次' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('课程内容可以单独更新，不必等新版本', async () => {
+    updateStatus = {
+      current: '0.7.0', content: 'content-1', checked: 1000,
+      contentUpdate: { version: 'content-2', size: 2048, current: 'content-1' },
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    expect(await screen.findByText('课程内容有更新')).toBeVisible();
+    expect(screen.getByText(/当前内容是 content-1，新的是 content-2/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '更新课程内容' }));
+    await waitFor(() => expect(updateRequests.some(request => request.action === 'content')).toBe(true));
   });
 
   it('对话历史：新建、切换、重命名与删除都在面板里完成', async () => {

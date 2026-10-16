@@ -8,13 +8,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,29 +27,42 @@ type Options struct {
 	Addr       string
 	RunTimeout time.Duration
 	AITimeout  time.Duration
+	// Platform 供更新逻辑挑选产物；留空按 runtime.GOOS，Android 外壳显式传 "android"。
+	Platform string
 }
 type proof struct {
 	hash       [32]byte
 	valid      bool
 	generation uint64
 }
+
+// curriculum 是课程的一份不可变快照；内容热更新时整体换掉，读的地方不用加锁。
+type curriculum struct {
+	courses  []Course
+	lessons  []Lesson
+	byID     map[string]Lesson
+	warnings []string
+}
+
 type Engine struct {
-	token     string
-	store     *store
-	runner    *Runner
-	courses   []Course
-	lessons   []Lesson
-	byID      map[string]Lesson
-	mu        sync.Mutex
-	proofs    map[string]proof
-	nextRun   uint64
-	aiGate    chan struct{}
-	aiClient  *http.Client
-	aiTimeout time.Duration
-	host      string
-	frontend  http.Handler
-	quit      chan struct{}
-	quitOnce  sync.Once
+	token        string
+	store        *store
+	runner       *Runner
+	cur          atomic.Pointer[curriculum]
+	mu           sync.Mutex
+	proofs       map[string]proof
+	nextRun      uint64
+	aiGate       chan struct{}
+	aiClient     *http.Client
+	aiTimeout    time.Duration
+	dataDir      string
+	platform     string
+	updateClient *http.Client
+	downloads    *downloader
+	host         string
+	frontend     http.Handler
+	quit         chan struct{}
+	quitOnce     sync.Once
 }
 
 func New(opts Options, frontend http.Handler) (*Engine, error) {
@@ -60,16 +77,56 @@ func New(opts Options, frontend http.Handler) (*Engine, error) {
 	if opts.AITimeout <= 0 {
 		opts.AITimeout = 30 * time.Second
 	}
-	courses, lessons, err := LoadCurriculum()
+	// 状态文件所在目录就是数据目录：内容包和更新包都放它下面。
+	dataDir := filepath.Dir(s.path)
+	courses, lessons, warnings, err := loadCurriculum(filepath.Join(dataDir, contentDirName))
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{token: hex.EncodeToString(secret), store: s, runner: NewRunner(opts.RunTimeout), courses: courses, lessons: lessons, byID: map[string]Lesson{}, proofs: map[string]proof{}, aiGate: make(chan struct{}, 2), aiTimeout: opts.AITimeout, aiClient: newAIClient(opts.AITimeout), frontend: frontend, quit: make(chan struct{})}
-	for _, l := range lessons {
-		e.byID[l.ID] = l
+	platform := opts.Platform
+	if platform == "" {
+		platform = runtime.GOOS
 	}
+	e := &Engine{
+		token:        hex.EncodeToString(secret),
+		store:        s,
+		runner:       NewRunner(opts.RunTimeout),
+		mu:           sync.Mutex{},
+		proofs:       map[string]proof{},
+		aiGate:       make(chan struct{}, 2),
+		aiTimeout:    opts.AITimeout,
+		aiClient:     newAIClient(opts.AITimeout),
+		dataDir:      dataDir,
+		platform:     platform,
+		updateClient: newUpdateClient(),
+		downloads:    &downloader{},
+		frontend:     frontend,
+		quit:         make(chan struct{}),
+	}
+	e.cur.Store(newCurriculum(courses, lessons, warnings))
 	return e, nil
 }
+
+func newCurriculum(courses []Course, lessons []Lesson, warnings []string) *curriculum {
+	byID := make(map[string]Lesson, len(lessons))
+	for _, lesson := range lessons {
+		byID[lesson.ID] = lesson
+	}
+	return &curriculum{courses: courses, lessons: lessons, byID: byID, warnings: warnings}
+}
+
+// reloadCurriculum 重新读一遍课程（内置 + 数据目录里的内容包），整体换掉快照。
+func (e *Engine) reloadCurriculum() error {
+	courses, lessons, warnings, err := loadCurriculum(e.contentDir())
+	if err != nil {
+		return fmt.Errorf("课程内容无法载入：%w", err)
+	}
+	e.cur.Store(newCurriculum(courses, lessons, warnings))
+	return nil
+}
+
+// curriculumSnapshot 给处理器用的一次性快照。
+func (e *Engine) curriculumSnapshot() *curriculum { return e.cur.Load() }
 
 // Token 仅供可信本地启动器生成启动 URL，不经 API 返回。
 func (e *Engine) Token() string { return e.token }
@@ -133,12 +190,13 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/bootstrap":
 		s := e.store.snapshot()
+		cur := e.curriculumSnapshot()
 		writeJSON(w, 200, Bootstrap{
-			Courses:       e.courses,
-			Lessons:       e.lessons,
+			Courses:       cur.courses,
+			Lessons:       cur.lessons,
 			Progress:      s.Progress,
 			Settings:      publicSettings(s.Settings),
-			Runtime:       runtimeInfo(),
+			Runtime:       Runtime{Platform: runtimePlatform(), Engine: "yaegi", Version: versionInfo(), Content: e.contentVersion()},
 			Conversations: chatList(s, nil).ConversationList,
 		})
 	case "/api/run":
@@ -151,6 +209,8 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.handleChat(w, r)
 	case "/api/conversations":
 		e.handleConversations(w, r)
+	case "/api/update":
+		e.handleUpdate(w, r)
 	case "/api/quit":
 		writeJSON(w, 200, map[string]string{"status": "stopping"})
 		e.requestQuit()
@@ -191,11 +251,17 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 func (e *Engine) lesson(w http.ResponseWriter, id string) (Lesson, bool) {
-	l, ok := e.byID[id]
+	l, ok := e.curriculumSnapshot().byID[id]
 	if !ok {
 		writeError(w, 400, "课程不存在")
 	}
 	return l, ok
+}
+
+// lessonExists 供对话与内容包校验使用：只判断课程是否还在，不写响应。
+func (e *Engine) lessonExists(id string) bool {
+	_, ok := e.curriculumSnapshot().byID[id]
+	return ok
 }
 func (e *Engine) handleRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {

@@ -1581,6 +1581,53 @@ main.page {
 .history-rename .button { padding: 7px 10px; font-size: 12.5px; flex-shrink: 0; }
 .text-button.danger { color: var(--red, #b3261e); }
 
+/* ---------- 设置 · 版本与更新 ---------- */
+.update-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.update-summary strong { display: block; font-family: var(--display); font-size: 15.5px; color: var(--ink); }
+.update-summary span { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.update-box {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.update-box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.update-box-head strong { font-size: 14.5px; color: var(--ink); }
+.update-box-head span { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.update-notes {
+  margin: 12px 0 4px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 13px;
+  color: var(--body-text);
+}
+.update-actions { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.update-hint { font-size: 12.5px; line-height: 1.85; color: var(--muted); margin-top: 10px; }
+.update-meter { margin-top: 12px; }
+.update-meter .meter-fill { background: var(--primary); }
+/* 顶栏设置按钮上的小红点：有新版本时就亮着 */
+.settings-link { position: relative; }
+.update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 2px var(--card);
+}
+
 /* ---------- 设置 ---------- */
 .settings-page { max-width: 880px; }
 .settings-card {

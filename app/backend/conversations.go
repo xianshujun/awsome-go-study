@@ -212,10 +212,8 @@ func (e *Engine) applyConversation(s *state, req conversationRequest) (*Conversa
 	now := time.Now().Unix()
 	switch req.Action {
 	case "create":
-		if req.LessonID != "" {
-			if _, ok := e.byID[req.LessonID]; !ok {
-				return nil, errors.New("课程不存在")
-			}
+		if req.LessonID != "" && !e.lessonExists(req.LessonID) {
+			return nil, errors.New("课程不存在")
 		}
 		c := conversation{ID: newChatID(), LessonID: req.LessonID, UpdatedAt: now, Messages: []StoredMessage{}}
 		s.Conversations = trimConversations(append(s.Conversations, c))
@@ -247,7 +245,7 @@ func (e *Engine) applyConversation(s *state, req conversationRequest) (*Conversa
 			return nil, errors.New("对话不存在")
 		}
 		if req.LessonID != "" {
-			if _, ok := e.byID[req.LessonID]; !ok {
+			if !e.lessonExists(req.LessonID) {
 				return nil, errors.New("课程不存在")
 			}
 			// 记录最近一次讨论的课程，列表里就能看出这段对话在问哪一课。
@@ -311,4 +309,3 @@ func viewAfterTrim(s *state, id string) *ConversationView {
 	}
 	return nil
 }
-

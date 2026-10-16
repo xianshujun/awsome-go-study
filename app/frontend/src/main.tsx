@@ -90,6 +90,8 @@ import {
 } from "./prefs";
 import type { AssistantWindow } from "./prefs";
 import { boundedText, MESSAGE_BYTES, useTutor } from "./tutor";
+import { useUpdater } from "./updater";
+import type { Updater } from "./updater";
 import "./styles.css";
 
 type View = "home" | "courses" | "learn" | "notes" | "settings";
@@ -222,6 +224,11 @@ export function App() {
   const tutor = useTutor();
   const hydrateTutor = tutor.hydrate;
   const { prefs, update } = useDisplayPrefs();
+  const updater = useUpdater({
+    autoUpdate: prefs.autoUpdate,
+    version: data?.runtime.version ?? "",
+    content: data?.runtime.content ?? "",
+  });
   // 这里在 MotionConfig 之外读取，拿到的是系统设置；用户在本机的选择优先。
   const systemReduce = useReducedMotion();
   const reduce = prefs.reduceMotion ?? Boolean(systemReduce);
@@ -287,6 +294,7 @@ export function App() {
             onNavigate={navigate}
             assistantOpen={assistantOpen}
             tutor={tutor}
+            updater={updater}
             onAssistant={openAssistant}
             notesCount={Object.values(data.progress.notes || {}).filter(Boolean).length}
               lessonId={lessonId}
@@ -326,6 +334,7 @@ function Shell({
   onNavigate,
   assistantOpen,
   tutor,
+  updater,
   onAssistant,
   notesCount,
   lessonId,
@@ -344,6 +353,7 @@ function Shell({
   onNavigate: (view: View) => void;
   assistantOpen: boolean;
   tutor: Tutor;
+  updater: Updater;
   onAssistant: (open: boolean) => void;
   notesCount: number;
   lessonId: string;
@@ -354,8 +364,8 @@ function Shell({
   onSettings: (settings: Settings) => void;
   onNotify: (text: string) => void;
   onQuit: () => void;
-  prefs: { reduceMotion: boolean | null; editorSize: number };
-  onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number }) => void;
+  prefs: { reduceMotion: boolean | null; editorSize: number; autoUpdate: boolean };
+  onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number; autoUpdate?: boolean }) => void;
 }) {
   const motionOn = useMotionEnabled();
   const [tutorSpace, setTutorSpace] = useState(0);
@@ -424,9 +434,13 @@ function Shell({
                 <button
                   className="icon-button settings-link"
                   aria-label="偏好与 AI 设置"
+                  title={updater.hasApp || updater.hasContent ? "有新版本可以更新" : "偏好与 AI 设置"}
                   onClick={() => onNavigate("settings")}
                 >
                   <Settings2 size={19} />
+                  {(updater.hasApp || updater.hasContent) && (
+                    <span className="update-dot" aria-hidden="true" />
+                  )}
                 </button>
               </Tooltip.Trigger>
               <Tooltip.Portal>
@@ -672,6 +686,7 @@ function Shell({
               onQuit={onQuit}
               prefs={prefs}
               onPrefs={onPrefs}
+              updater={updater}
               motionOn={motionOn}
             />
           </motion.div>
@@ -2076,6 +2091,188 @@ function Assistant({
   );
 }
 
+
+/* ---------------- 版本与更新 ---------------- */
+
+/** 字节数变成人能读的大小。 */
+function readableSize(bytes: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const RELEASES_PAGE = "https://github.com/xianshujun/awsome-go-study/releases/latest";
+
+function UpdateCard({
+  updater,
+  runtime,
+  prefs,
+  onPrefs,
+  motionOn,
+}: {
+  updater: Updater;
+  runtime: Bootstrap["runtime"];
+  prefs: { autoUpdate: boolean };
+  onPrefs: (patch: { autoUpdate?: boolean }) => void;
+  motionOn: boolean;
+}) {
+  const { status, checking, download, error, applying } = updater;
+  const current = status?.current || runtime.version || "dev";
+  const content = status?.content || runtime.content || "";
+  const busy = download.state === "downloading" || download.state === "verifying";
+  const ready = download.state === "ready";
+  const percent = download.total > 0 ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
+  const app = status?.app;
+  const contentUpdate = status?.contentUpdate;
+
+  return (
+    <motion.section className="settings-card" {...rise(motionOn, 2)}>
+      <div className="settings-card-heading">
+        <div className="course-icon">
+          <ArrowDownToLine size={22} />
+        </div>
+        <div>
+          <h2>版本与更新</h2>
+          <p>更新包只从 GitHub / Gitee 的发布页下载，落到本机前会校验 sha256；程序不常驻、不开后台服务。</p>
+        </div>
+        <span className={`status-pill ${app || contentUpdate ? "connected" : ""}`}>
+          {app ? `有新版本 ${app.version}` : contentUpdate ? "有课程内容更新" : "已是最新"}
+        </span>
+      </div>
+
+      <div className="update-summary">
+        <div>
+          <strong>GoStudy {current}</strong>
+          <span>
+            {content ? `课程内容 ${content} · ` : ""}
+            {status?.checked ? `上次检查：${relativeTime(status.checked)}` : "还没有检查过"}
+          </span>
+        </div>
+        <button className="button secondary" onClick={() => void updater.check(true)} disabled={checking || busy}>
+          {checking ? "正在检查…" : "检查更新"}
+        </button>
+      </div>
+
+      <div className="pref-row">
+        <div className="pref-copy">
+          <strong>每天自动检查一次</strong>
+          <p>只拉一个很小的版本清单，不含任何学习数据；关掉之后仍然可以手动检查。</p>
+        </div>
+        <div className="pref-control">
+          <Switch.Root
+            className="switch"
+            aria-label="每天自动检查一次"
+            checked={prefs.autoUpdate}
+            onCheckedChange={(value) => onPrefs({ autoUpdate: value })}
+          >
+            <Switch.Thumb className="switch-thumb" />
+          </Switch.Root>
+        </div>
+      </div>
+
+      {app && !busy && !ready && (
+        <div className="update-box">
+          <div className="update-box-head">
+            <strong>
+              新版本 {app.version}
+              {app.released ? ` · ${app.released}` : ""}
+            </strong>
+            <span>{readableSize(app.size)}</span>
+          </div>
+          {app.notes && (
+            <div className="markdown update-notes">
+              <ReactMarkdown>{app.notes}</ReactMarkdown>
+            </div>
+          )}
+          <div className="update-actions">
+            <button className="button primary" onClick={() => void updater.downloadUpdate()}>
+              <ArrowDownToLine size={16} />
+              下载并安装 {app.version}
+            </button>
+            <a className="text-button" href={RELEASES_PAGE} target="_blank" rel="noreferrer">
+              打开发布页
+            </a>
+          </div>
+        </div>
+      )}
+
+      {busy && (
+        <div className="update-box">
+          <div className="update-box-head">
+            <strong>{download.state === "verifying" ? "正在校验更新包…" : `正在下载 ${download.asset ?? ""}`}</strong>
+            <span>
+              {readableSize(download.received)}
+              {download.total ? ` / ${readableSize(download.total)}` : ""}
+            </span>
+          </div>
+          <Meter.Root className="meter update-meter" value={percent} max={100} aria-label="下载进度">
+            <div className="meter-fill" style={{ width: `${percent}%` }} />
+          </Meter.Root>
+        </div>
+      )}
+
+      {ready && (
+        <div className="update-box">
+          <div className="update-box-head">
+            <strong>更新包已就绪</strong>
+            <span>{readableSize(download.received)}</span>
+          </div>
+          <p className="update-hint">
+            {download.mode === "android"
+              ? "点下面的按钮后，系统会问一次是否允许安装；装完重新打开就是新版本。"
+              : download.mode === "installer"
+                ? "安装版会静默升级并保留你的设置，可能需要你在系统弹窗里点一次「是」。"
+                : "点下面的按钮后应用会自动替换并重启，学习进度和对话都在，不受影响。"}
+          </p>
+          <div className="update-actions">
+            <button className="button primary" onClick={() => void updater.install()}>
+              {download.mode === "android" ? "安装更新" : "立即重启并更新"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {applying === "app" && !ready && !busy && !error && (
+        <p className="update-hint">正在准备更新…</p>
+      )}
+
+      {contentUpdate && (
+        <div className="update-box">
+          <div className="update-box-head">
+            <strong>课程内容有更新</strong>
+            <span>{readableSize(contentUpdate.size)}</span>
+          </div>
+          <p className="update-hint">
+            内容包只含课程讲义与练习，不改程序：更新后页面会自动刷新，
+            {content ? `当前内容是 ${content}，新的是 ${contentUpdate.version}。` : `新版是 ${contentUpdate.version}。`}
+          </p>
+          <div className="update-actions">
+            <button className="button secondary" onClick={() => void updater.updateContent()} disabled={applying === "content"}>
+              {applying === "content" ? "正在更新内容…" : "更新课程内容"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!app && !contentUpdate && !busy && !ready && !checking && !status?.error && (
+        <p className="update-hint">
+          当前已经是最新的版本{content ? `，课程内容是 ${content}` : ""}。
+        </p>
+      )}
+
+      {(error || status?.error || status?.warning) && (
+        <div className="error-box" role="alert">
+          {error || status?.error || status?.warning}
+          <a className="text-button" href={RELEASES_PAGE} target="_blank" rel="noreferrer">
+            手动下载
+          </a>
+        </div>
+      )}
+    </motion.section>
+  );
+}
+
 /* ---------------- 设置 ---------------- */
 
 function PrefsPanel({
@@ -2162,6 +2359,7 @@ function Preferences({
   onQuit,
   prefs,
   onPrefs,
+  updater,
   motionOn,
 }: {
   settings: Settings;
@@ -2169,8 +2367,9 @@ function Preferences({
   onNotify: (s: string) => void;
   runtime: Bootstrap["runtime"];
   onQuit: () => void;
-  prefs: { reduceMotion: boolean | null; editorSize: number };
-  onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number }) => void;
+  prefs: { reduceMotion: boolean | null; editorSize: number; autoUpdate: boolean };
+  onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number; autoUpdate?: boolean }) => void;
+  updater: Updater;
   motionOn: boolean;
 }) {
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl || "https://api.openai.com/v1");
@@ -2342,7 +2541,14 @@ function Preferences({
         </div>
         <PrefsPanel prefs={prefs} onPrefs={onPrefs} />
       </motion.section>
-      <motion.section className="settings-card" {...rise(motionOn, 2)}>
+      <UpdateCard
+        updater={updater}
+        runtime={runtime}
+        prefs={prefs}
+        onPrefs={onPrefs}
+        motionOn={motionOn}
+      />
+      <motion.section className="settings-card" {...rise(motionOn, 3)}>
         <div className="settings-card-heading">
           <div className="course-icon">
             <ShieldCheck size={22} />
@@ -2364,6 +2570,10 @@ function Preferences({
           <div>
             <span>课程与笔记</span>
             <strong>保存在当前设备</strong>
+          </div>
+          <div>
+            <span>程序版本</span>
+            <strong>GoStudy {runtime.version || "dev"}</strong>
           </div>
         </div>
         {desktop && (

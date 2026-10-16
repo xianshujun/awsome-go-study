@@ -37,6 +37,8 @@ type Progress struct {
 	Drafts     map[string]string `json:"drafts"`
 	Notes      map[string]string `json:"notes"`
 	LastLesson string            `json:"lastLesson"`
+	// LastUpdateCheck 是上一次检查更新的时间戳（秒）；自动检查按它做 24 小时节流。
+	LastUpdateCheck int64 `json:"lastUpdateCheck,omitempty"`
 }
 type Settings struct {
 	BaseURL string `json:"baseUrl"`
@@ -46,6 +48,9 @@ type Settings struct {
 type Runtime struct {
 	Platform string `json:"platform"`
 	Engine   string `json:"engine"`
+	// Version 是当前构建的版本号，Content 是已应用的课程内容包版本（没有则为空）。
+	Version string `json:"version"`
+	Content string `json:"content,omitempty"`
 }
 type Bootstrap struct {
 	Courses  []Course `json:"courses"`
@@ -57,7 +62,9 @@ type Bootstrap struct {
 	Conversations ConversationList `json:"conversations"`
 }
 
-func runtimeInfo() Runtime { return Runtime{Platform: runtime.GOOS, Engine: "yaegi"} }
+func runtimeInfo() Runtime    { return Runtime{Platform: runtime.GOOS, Engine: "yaegi"} }
+func runtimePlatform() string { return runtime.GOOS }
+
 func emptyProgress() Progress {
 	return Progress{Completed: []string{}, Drafts: map[string]string{}, Notes: map[string]string{}}
 }

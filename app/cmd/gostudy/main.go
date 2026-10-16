@@ -20,10 +20,13 @@ import (
 	"github.com/xianshujun/awsome-go-study/app/web"
 )
 
-const version = "0.6.0"
+// version 由构建脚本注入：-X .../app/backend.Version=0.7.0。
+// 直接 go run 的源码构建是 dev，更新检查会跳过程序本身的比较。
+var version = backend.Version
 
 func main() {
 	noBrowser := flag.Bool("no-browser", false, "不自动打开应用窗口")
+	cleanup := flag.String("cleanup", "", "内部参数：启动后删除上一次更新留下的旧程序文件")
 	addr := flag.String("addr", "127.0.0.1:0", "本机监听地址，默认随机端口")
 	dataDir := flag.String("data-dir", "", "学习状态目录，默认使用系统用户配置目录")
 	showVersion := flag.Bool("version", false, "显示版本信息")
@@ -49,6 +52,12 @@ func main() {
 		}
 		log.close()
 	}()
+	// 自我更新后的第一件事：把上一版留下的 GoStudy.exe.old 删掉。
+	// 旧进程刚退出时文件可能还被占用，所以重试几次；删不掉也只是多占一份空间。
+	if *cleanup != "" {
+		go removeOldBinary(*cleanup, log)
+	}
+
 	log.write("版本 %s，平台 %s/%s，可执行文件：%s", version, runtime.GOOS, runtime.GOARCH, executablePath())
 	fmt.Printf("GoStudy %s\n", version)
 
@@ -103,6 +112,21 @@ func main() {
 	defer cancel()
 	_ = server.Stop(shutdown)
 	log.write("已退出")
+}
+
+// removeOldBinary 清理旧版本可执行文件；失败不报错，只记一行日志。
+func removeOldBinary(path string, log *startupLog) {
+	// 稍等一下再动手：退出中的旧进程可能还按着这个文件。
+	time.Sleep(2 * time.Second)
+	for attempt := 0; attempt < 10; attempt++ {
+		err := os.Remove(path)
+		if err == nil || os.IsNotExist(err) {
+			log.write("已清理旧版本文件：%s", path)
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	log.write("旧版本文件暂时删不掉，可以手动删除：%s", path)
 }
 
 // runSelfTest 逐项检查启动依赖，把结果写进日志并用对话框展示，

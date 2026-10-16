@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -23,33 +25,100 @@ type courseFile struct {
 	Order   int      `json:"order"`
 	Course  Course   `json:"course"`
 	Lessons []Lesson `json:"lessons"`
+
+	// source 是文件名（如 grammar.json）。磁盘上的内容包按这个名字覆盖同名课程。
+	source string
 }
 
 var lessonIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,40}$`)
 
 // LoadCurriculum 加载内置课程；启动时校验，避免把坏内容发给学习者。
 func LoadCurriculum() ([]Course, []Lesson, error) {
-	names, err := fs.Glob(curriculumFS, "courses/*.json")
+	files, err := readEmbeddedCourses()
 	if err != nil {
 		return nil, nil, err
 	}
+	return assembleCurriculum(files)
+}
+
+// readEmbeddedCourses 读出编译进程序的那一份课程。
+func readEmbeddedCourses() ([]courseFile, error) {
+	names, err := fs.Glob(curriculumFS, "courses/*.json")
+	if err != nil {
+		return nil, err
+	}
 	if len(names) == 0 {
-		return nil, nil, fmt.Errorf("内置课程为空")
+		return nil, fmt.Errorf("内置课程为空")
 	}
 	sort.Strings(names)
 	files := make([]courseFile, 0, len(names))
 	for _, name := range names {
 		data, err := curriculumFS.ReadFile(name)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		file, err := parseCourseFile(data)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", path.Base(name), err)
+			return nil, fmt.Errorf("%s: %w", path.Base(name), err)
 		}
+		file.source = path.Base(name)
 		files = append(files, file)
 	}
-	return assembleCurriculum(files)
+	return files, nil
+}
+
+/*
+loadCurriculum 以内置课程为底，用 overrideDir 里的同名 JSON 覆盖对应课程，
+并允许新增文件带来的新课程。内容热更新走的就是这条路：把新的课程文件放进
+数据目录，不必重新发布程序。
+
+坏文件只跳过并记一条警告——学习内容可以少一课，但不能因为一个坏文件就开不了应用。
+*/
+func loadCurriculum(overrideDir string) ([]Course, []Lesson, []string, error) {
+	files, err := readEmbeddedCourses()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	warnings := []string{}
+	if overrideDir != "" {
+		names, err := filepath.Glob(filepath.Join(overrideDir, "*.json"))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		sort.Strings(names)
+		index := make(map[string]int, len(files))
+		for i, file := range files {
+			index[file.source] = i
+		}
+		for _, full := range names {
+			base := filepath.Base(full)
+			data, err := os.ReadFile(full)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s 读取失败", base))
+				continue
+			}
+			if len(data) > maxContentFileBytes {
+				warnings = append(warnings, fmt.Sprintf("%s 超过单文件上限，已忽略", base))
+				continue
+			}
+			file, err := parseCourseFile(data)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s 解析失败，已忽略", base))
+				continue
+			}
+			file.source = base
+			if i, ok := index[base]; ok {
+				files[i] = file
+			} else {
+				files = append(files, file)
+			}
+		}
+	}
+	courses, lessons, err := assembleCurriculum(files)
+	if err != nil {
+		return nil, nil, warnings, err
+	}
+	return courses, lessons, warnings, nil
 }
 
 // LoadCourseFile 校验单个课程文件，供 lessoncheck 等维护工具使用。

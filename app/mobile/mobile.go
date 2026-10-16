@@ -27,7 +27,8 @@ func Start(dataDir string) (string, error) {
 	if strings.TrimSpace(dataDir) == "" {
 		return "", errors.New("请提供应用私有数据目录")
 	}
-	server, err := backend.Start(backend.Options{DataDir: dataDir}, web.Handler())
+	// Platform 显式声明为 android：更新逻辑据此挑选 APK，并把安装交给系统安装器。
+	server, err := backend.Start(backend.Options{DataDir: dataDir, Platform: "android"}, web.Handler())
 	if err != nil {
 		return "", err
 	}

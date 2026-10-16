@@ -7,11 +7,13 @@ export type DisplayPrefs = {
   /** null 表示跟随系统；true/false 表示用户在本机明确指定过。 */
   reduceMotion: boolean | null;
   editorSize: number;
+  /** 每天最多检查一次新版本；用户可以在设置里关掉。 */
+  autoUpdate: boolean;
 };
 
 export const EDITOR_SIZE = { min: 12, max: 20, step: 1, initial: 14 } as const;
 
-const defaults: DisplayPrefs = { reduceMotion: null, editorSize: EDITOR_SIZE.initial };
+const defaults: DisplayPrefs = { reduceMotion: null, editorSize: EDITOR_SIZE.initial, autoUpdate: true };
 
 function clampSize(value: number) {
   if (!Number.isFinite(value)) return EDITOR_SIZE.initial;
@@ -27,6 +29,8 @@ export function readPrefs(): DisplayPrefs {
       reduceMotion:
         typeof parsed.reduceMotion === "boolean" ? parsed.reduceMotion : null,
       editorSize: clampSize(Number(parsed.editorSize ?? EDITOR_SIZE.initial)),
+      // 老版本没有这个字段，默认开启。
+      autoUpdate: parsed.autoUpdate !== false,
     };
   } catch {
     // 隐私模式或写入被拦截时退回默认值，不影响学习功能。
