@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 本地 HTTP 引擎和 Go 后端的 AI HTTPS 请求都需要网络权限。 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 应用内更新：下载好的 APK 交给系统安装器，安装时系统仍会问用户确认。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -21,5 +23,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- 只把 <filesDir>/updates/GoStudy.apk 这一个文件借给系统安装器，不对外导出。 -->
+        <provider
+            android:name=".UpdateApkProvider"
+            android:authorities="${applicationId}.updateapk"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

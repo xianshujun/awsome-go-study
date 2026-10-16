@@ -1,10 +1,13 @@
 package io.gostudy.local;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -30,6 +33,8 @@ public final class MainActivity extends Activity {
     // 启动和停止串行执行；旋转屏幕不会启动第二个 Go 引擎。
     private static final ExecutorService ENGINE = Executors.newSingleThreadExecutor();
     private static String engineUrl;
+    /** 页面用这个自定义地址请求安装更新：gostudy://install。 */
+    private static final String UPDATE_SCHEME = "gostudy";
 
     private FrameLayout container;
     private WebView webView;
@@ -143,12 +148,12 @@ public final class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !sameOrigin(request.getUrl(), origin);
+                return handleNavigation(request.getUrl(), origin);
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String target) {
-                return !sameOrigin(Uri.parse(target), origin);
+                return handleNavigation(Uri.parse(target), origin);
             }
 
             @Override
@@ -165,7 +170,11 @@ public final class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request,
                                         android.webkit.WebResourceError error) {
-                if (request.isForMainFrame()) {
+                // gostudy:// 这类自定义地址不是网页加载失败，界面不该被换成错误页。
+                Uri failed = request.getUrl();
+                String scheme = failed == null ? "" : failed.getScheme();
+                boolean page = "http".equals(scheme) || "https".equals(scheme);
+                if (request.isForMainFrame() && page) {
                     showStatus(R.string.page_failed);
                 }
             }
@@ -183,6 +192,69 @@ public final class MainActivity extends Activity {
         container.removeAllViews();
         container.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         webView.loadUrl(url);
+    }
+
+    /**
+     * 页面里的导航分三种：本机页面照常加载；gostudy://install 交给系统安装器；
+     * 其它 https 外链（例如发布页）用系统浏览器打开，其余一律拦下。
+     */
+    private boolean handleNavigation(Uri uri, Uri origin) {
+        if (sameOrigin(uri, origin)) {
+            return false;
+        }
+        if (UPDATE_SCHEME.equals(uri.getScheme()) && "install".equals(uri.getHost())) {
+            installUpdate();
+            return true;
+        }
+        if ("https".equals(uri.getScheme())) {
+            openInBrowser(uri);
+            return true;
+        }
+        return true;
+    }
+
+    private void openInBrowser(Uri uri) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (ActivityNotFoundException ignored) {
+            // 没有浏览器就算了，页面本身还能用。
+        }
+    }
+
+    /**
+     * 把已经下载好的更新包交给系统安装器。路径是固定约定，页面无法指定别的文件；
+     * 系统仍会弹出安装确认，Android 8 起还要求用户先允许本应用"安装未知应用"。
+     */
+    private void installUpdate() {
+        java.io.File apk = new java.io.File(new java.io.File(getFilesDir(), "updates"), UpdateApkProvider.APK_NAME);
+        if (!apk.isFile() || apk.length() == 0) {
+            showStatus(R.string.update_missing);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (ActivityNotFoundException ignored) {
+                showStatus(R.string.update_install_failed);
+                return;
+            }
+            showStatus(R.string.update_allow_install);
+            return;
+        }
+        Uri uri = new Uri.Builder()
+                .scheme("content")
+                .authority(UpdateApkProvider.AUTHORITY)
+                .path(UpdateApkProvider.APK_NAME)
+                .build();
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, UpdateApkProvider.getApkMime());
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            showStatus(R.string.update_install_failed);
+        }
     }
 
     @Override
