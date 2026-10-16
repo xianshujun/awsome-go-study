@@ -20,6 +20,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 VERSION=''
 DIR=''
 OUT_DIR=''
+CONTENT_ONLY='no'
 NOTES=''
 NOTES_FILE=''
 RELEASED="$(date -u +%F)"
@@ -35,7 +36,8 @@ usage() {
         '  --notes 文本               更新说明，直接写进清单' \
         '  --notes-file 文件          从文件读更新说明（与 --notes 二选一）' \
         '  --released YYYY-MM-DD      发布日期，默认今天' \
-        '  --content-dir 目录         课程目录，默认 app/backend/courses'
+        '  --content-dir 目录         课程目录，默认 app/backend/courses' \
+        '  --content-only             只生成课程内容包，不生成 update.json（只改课程内容时用）'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -47,14 +49,17 @@ while [[ $# -gt 0 ]]; do
         --notes-file) [[ $# -ge 2 ]] || fail '--notes-file 需要一个值'; NOTES_FILE="$2"; shift 2 ;;
         --released) [[ $# -ge 2 ]] || fail '--released 需要一个值'; RELEASED="$2"; shift 2 ;;
         --content-dir) [[ $# -ge 2 ]] || fail '--content-dir 需要一个值'; CONTENT_SOURCE="$2"; shift 2 ;;
+        --content-only) CONTENT_ONLY='yes'; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; fail "未知参数：$1" ;;
     esac
 done
 
-[[ -n "$VERSION" ]] || fail '缺少 --version'
-[[ -d "$DIR" ]] || fail "找不到产物目录：$DIR"
-[[ -z "$OUT_DIR" ]] && OUT_DIR="$DIR"
+if [[ "$CONTENT_ONLY" == 'no' ]]; then
+    [[ -n "$VERSION" ]] || fail '缺少 --version'
+    [[ -d "$DIR" ]] || fail "找不到产物目录：$DIR"
+fi
+[[ -z "$OUT_DIR" ]] && OUT_DIR="${DIR:-.}"
 mkdir -p -- "$OUT_DIR"
 require_command python3
 
@@ -66,6 +71,7 @@ fi
 # 清单里的产物名与更新逻辑（backend/update.go 的 assetName）保持一致。
 ASSETS=(GoStudy.exe GoStudy-Setup.exe GoStudy-linux-amd64 GoStudy-linux-arm64 GoStudy-android-release.apk)
 
+if [[ "$CONTENT_ONLY" == 'no' ]]; then
 VERSION="$VERSION" RELEASED="$RELEASED" NOTES="$NOTES" DIR="$DIR" OUT_DIR="$OUT_DIR" \
     ASSETS="${ASSETS[*]}" python3 - <<'PY'
 import hashlib, json, os, pathlib
@@ -98,6 +104,7 @@ print(f"update.json：{version}，{len(files)} 个文件")
 for name, info in files.items():
     print(f"  {name}  {info['size']} 字节  sha256 {info['sha256'][:12]}…")
 PY
+fi
 
 # 课程内容包：把 courses/*.json 打成一个 zip，版本号取内容的哈希。
 CONTENT_DIR="$CONTENT_SOURCE" OUT_DIR="$OUT_DIR" python3 - <<'PY'
@@ -116,10 +123,15 @@ for path in names:
 version = signature.hexdigest()[:10]
 
 pack = out_dir / "content.zip"
+# 固定时间戳：同样的课程内容在 CI 与本机打出的包逐字节一致，便于核对与缓存。
+FIXED_TIME = (2026, 1, 1, 0, 0, 0)
 with zipfile.ZipFile(pack, "w", zipfile.ZIP_DEFLATED) as archive:
     for path in names:
-        # 只放文件名，压缩包里不带目录层级，与服务端的结构校验一致。
-        archive.write(path, arcname=path.name)
+        # 只放文件名，压缩包里不带层级，与服务端的结构校验一致。
+        entry = zipfile.ZipInfo(path.name, date_time=FIXED_TIME)
+        entry.compress_type = zipfile.ZIP_DEFLATED
+        entry.external_attr = 0o600 << 16
+        archive.writestr(entry, path.read_bytes())
 
 data = pack.read_bytes()
 info = {

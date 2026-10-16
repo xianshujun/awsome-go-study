@@ -3,12 +3,15 @@ package backend
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -31,13 +34,51 @@ var contentFileName = regexp.MustCompile(`^[a-z][a-z0-9-]{1,40}\.json$`)
 func (e *Engine) updatesDir() string { return filepath.Join(e.dataDir, updatesDirName) }
 func (e *Engine) contentDir() string { return filepath.Join(e.dataDir, contentDirName) }
 
-// contentVersion 是当前已经应用的内容包版本；没有内容包时返回空串。
+/*
+contentVersion 是当前生效的课程内容版本：应用过内容包就是包里记的版本，
+没应用过则退回"内置课程的哈希"。后者让全新安装不会一上来就提示"内容有更新"——
+内置内容与已发布内容一致时，两个版本号本来就相等。
+
+算法必须与 app/scripts/make-update-manifest.sh 保持一致：
+按文件名排序，逐个写入 文件名 + \0 + 内容 + \0，取 sha256 的前 10 位十六进制。
+*/
 func (e *Engine) contentVersion() string {
 	data, err := os.ReadFile(filepath.Join(e.contentDir(), contentVersionFile))
+	if err == nil {
+		if version := strings.TrimSpace(string(data)); version != "" {
+			return version
+		}
+	}
+	files, err := readEmbeddedCourses()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	bundled := make(map[string][]byte, len(files))
+	for _, file := range files {
+		data, err := curriculumFS.ReadFile("courses/" + file.source)
+		if err != nil {
+			continue
+		}
+		bundled[file.source] = data
+	}
+	return contentSignature(bundled)
+}
+
+// contentSignature 给一组课程文件算版本号；与发布脚本用同一套算法。
+func contentSignature(files map[string][]byte) string {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	digest := sha256.New()
+	for _, name := range names {
+		digest.Write([]byte(name))
+		digest.Write([]byte{0})
+		digest.Write(files[name])
+		digest.Write([]byte{0})
+	}
+	return hex.EncodeToString(digest.Sum(nil))[:10]
 }
 
 // applyContent 下载内容包、校验、落盘，然后把课程重新载入内存。

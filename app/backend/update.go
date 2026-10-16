@@ -51,14 +51,13 @@ func latestBases() []string {
 	}
 }
 
+// contentBases 与程序清单同源：内容包和产物在同一次发布里，
+// 这样 Gitee 的 latest 别名（指向最新一次发布）对两者都成立。
 func contentBases() []string {
 	if custom := splitList(os.Getenv("GOSTUDY_CONTENT_BASES")); len(custom) > 0 {
 		return custom
 	}
-	return []string{
-		"https://gitee.com/pang-xianshu/gostudy-release/releases/download/content",
-		"https://github.com/xianshujun/awsome-go-study/releases/download/content",
-	}
+	return latestBases()
 }
 
 func splitList(raw string) []string {

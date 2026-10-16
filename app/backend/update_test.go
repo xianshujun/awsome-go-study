@@ -301,8 +301,12 @@ func TestContentUpdateAppliesAndSurvivesRestart(t *testing.T) {
 	t.Setenv("GOSTUDY_CONTENT_BASES", server.URL)
 
 	status := e.checkUpdate(false, "cn")
-	if status.ContentUpdate == nil || status.ContentUpdate.Version != "2026-10-16-abc123" || status.ContentUpdate.Current != "" {
+	if status.ContentUpdate == nil || status.ContentUpdate.Version != "2026-10-16-abc123" {
 		t.Fatalf("应当发现内容更新：%+v", status)
+	}
+	// 没应用过内容包时，"当前内容"就是内置内容的哈希（全新安装不该被误报为待更新）。
+	if status.ContentUpdate.Current != status.Content || len(status.Content) != 10 {
+		t.Fatalf("当前内容版本应当是内置内容的哈希：%+v", status)
 	}
 
 	version, err := e.applyContent("cn")
@@ -447,6 +451,61 @@ func TestAndroidInstallHandsOffToSystem(t *testing.T) {
 	if installMode("android") != "android" {
 		t.Fatal("installMode 应当区分 Android")
 	}
+}
+
+// 内置内容的哈希算法必须和发布脚本一致，否则全新安装会一直提示"有内容更新"。
+func TestContentSignatureMatchesReleaseScript(t *testing.T) {
+	// 这两个文件的期望值由 app/scripts/make-update-manifest.sh 的同一套算法算出，
+	// 换了算法或在中间加了字段，这里会立刻失败。
+	files := map[string][]byte{"b.json": []byte("second"), "a.json": []byte("first")}
+	// 这个期望值由 app/scripts/make-update-manifest.sh 里的同一套算法（python）算出：
+	// 按文件名排序，写 文件名 + \0 + 内容 + \0，取 sha256 前 10 位。
+	if got := contentSignature(files); got != "6b7d47574f" {
+		t.Fatalf("内容版本算法与发布脚本不一致：%s", got)
+	}
+	// 顺序无关
+	reordered := map[string][]byte{"a.json": []byte("first"), "b.json": []byte("second")}
+	if contentSignature(reordered) != contentSignature(files) {
+		t.Fatal("同样的内容应当得到同样的版本号")
+	}
+	// 内容变了，版本号必须变
+	changed := map[string][]byte{"a.json": []byte("first"), "b.json": []byte("second!")}
+	if contentSignature(changed) == contentSignature(files) {
+		t.Fatal("内容变化后版本号应当改变")
+	}
+}
+
+// 全新安装（没有内容包）时，当前内容版本应当等于内置内容的哈希。
+func TestFreshInstallContentVersionIsBundled(t *testing.T) {
+	e := testEngine(t, t.TempDir())
+	version := e.contentVersion()
+	if len(version) != 10 {
+		t.Fatalf("内置内容版本应当是 10 位哈希：%q", version)
+	}
+	// 应用了内容包（内容与内置一致）之后，版本号不变——这正是"不会误报更新"的关键
+	courses := t.TempDir()
+	writeCourseDir(t, courses, "Go 语言基础 · 语法")
+	pack, _, err := contentPackFromDir(courses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeZip(t, map[string][]byte{"grammar.json": mustReadAsset(t, "courses/grammar.json")})
+	if err := e.installContentPack(path, contentInfo{Version: version}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pack) == 0 || e.contentVersion() != version {
+		t.Fatalf("应用同内容的内容包后版本应保持不变：%q", e.contentVersion())
+	}
+}
+
+// mustReadAsset 读一个内置文件，供测试构造内容包。
+func mustReadAsset(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := curriculumFS.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func TestRelaunchArgs(t *testing.T) {

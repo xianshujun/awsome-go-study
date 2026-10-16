@@ -285,19 +285,6 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           gh release upload "$tag" dist/update.json dist/content.json dist/content.zip --clobber
 
-      - name: 更新 content 频道
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # 内容频道是一个固定 tag 的 Release，只放这两个文件；
-          # 这样"只改课程内容"也能单独发布，不用动程序版本。
-          gh release view content >/dev/null 2>&1 \
-            || gh release create content --title "课程内容包" --notes "课程内容按内容哈希版本化，应用会自行判断是否需要更新。" \
-            || echo "content 频道已存在，继续上传。"
-          gh release upload content dist/content.json dist/content.zip --clobber
-
   gitee-mirror:
     name: Gitee 国内镜像
     # 镜像的内容直接取自 GitHub Release，而不是各任务的构建产物：
