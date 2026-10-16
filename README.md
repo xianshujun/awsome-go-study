@@ -55,7 +55,7 @@
 - **引导式学习闭环**：先读懂概念，再改代码、真运行、答理解题，最后记笔记——每一步都有反馈。
 - **8 门课程 · 43 个练习**：Go 语言基础（语法 / 并发）、Go 语言进阶（语言深挖 / 标准库 / 工程实践）、Go 开发实战（网络开发 / 中间件 / 微服务）。
 - **真实运行代码**：练习由内置 Go 解释器在本机执行，限制导入符号、运行时间与输出大小，不开放文件与网络访问。
-- **可配置的 AI 导师**：支持 OpenAI Chat Completions 兼容接口，也可以接本机模型；结合当前课程、代码和笔记做引导式提问，只有你主动提问时才发送上下文。
+- **可配置的 AI 导师**：支持 OpenAI Chat Completions 兼容接口，也可以接本机模型；结合当前课程、代码和笔记做引导式提问，只有你主动提问时才发送上下文。面板停在右侧跟练习并排，打开它不影响改代码和运行；对话记在本机，可以新建、切换、重命名、删除，收起或重启后都能接着问。
 - **本地优先**：没有账号，学习进度、笔记和草稿都保存在本机，断网也能继续学。
 
 **在线落地页**：<https://xianshujun.github.io/awsome-go-study/> —— 一页看完功能、界面截图与三平台下载入口，源码在 [`landing/`](landing/)。
@@ -103,7 +103,7 @@ GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有�
 
 ```bash
 GITEE_TOKEN=你的令牌 bash app/scripts/publish-gitee-release.sh \
-    --repo pang-xianshu/gostudy-release --tag v0.5.0 --dir app/release
+    --repo pang-xianshu/gostudy-release --tag v0.6.0 --dir app/release
 ```
 
 > ⚠️ 我们的包最大是 APK 约 65 MB，在 Gitee 免费仓库的附件限制内；如果以后有更大的产物被拒，日志里会写明原因，也可以只镜像桌面端两个文件。

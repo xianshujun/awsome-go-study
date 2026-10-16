@@ -38,7 +38,7 @@ const screenshots: Screenshot[] = [
     file: "screenshots/04-assistant.png",
     tab: "AI 导师",
     caption:
-      "接自己的模型，问不懂的地方。只有你点发送时才会把这一课和代码发出去。",
+      "接自己的模型，问不懂的地方。面板停在右侧不挡操作，对话记在本机，随时能翻回上一段；只有你点发送时才把这一课和代码发出去。",
   },
   {
     id: "mobile",

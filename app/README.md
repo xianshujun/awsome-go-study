@@ -55,7 +55,7 @@ flowchart LR
 
 - **连续性**：首页课程卡点进课程页时，卡片与课程页标题区共享同一个 `view-transition-name`，由平台自带的 View Transitions 把"卡片长成页面"补成一帧动画；浏览器不支持（或用户要求减少动效）时退化为直接切换，不做阻塞。
 - **过程感**：「运行代码」不是转圈等待，而是拆成编译 → 执行 → 比对期望输出 → 通过四个可见阶段（仅在允许动效时展开）；通过后控制台逐行列出输出，每行一个对勾表示与期望输出对得上。
-- **物理感**：抽屉从用户点击的那颗按钮位置展开（`transform-origin` 取点击坐标），头部可下拉关闭，方向与手势一致；所有按钮与列表项按压时轻微缩进（用独立的 `scale` 属性，不与位移的 `transform` 互相覆盖）。
+- **物理感**：所有按钮与列表项按压时轻微缩进（用独立的 `scale` 属性，不与位移的 `transform` 互相覆盖）；导师面板可以从标题栏拖到任意位置、从左上角拉出想要的宽高，松开后位置记在这台设备上，双击标题栏回到默认的停靠位。
 
 除库之外还用到几项平台自带能力，因此没有增加任何依赖：顶栏底边分隔线随滚动淡入用滚动驱动动画（`animation-timeline: scroll()`，跑在合成器线程）；中文排版用 `text-autospace` 与 `text-spacing-trim` 处理中英混排空隙与标点收边；安卓端在运行通过与失败时用 `navigator.vibrate` 给出不同触觉反馈。
 
@@ -86,7 +86,11 @@ AI 导师位于学习流程中，可解释当前课、逐步提示和分析用�
 
 > ⚠️ **常见坑**：API 地址不要重复填写 `/chat/completions`。Android 中 `127.0.0.1` 指向手机自身，不能用它访问电脑上的模型。当前版本只允许 HTTPS 远程地址或本机回环 HTTP 地址。
 
-只有主动提问或测试连接时才联系模型。学习上下文包括当前课、代码、当前课的笔记、完成状态和近期对话；API Key 只由 Go 引擎读取。AI 对话目前只保留在当前打开的导师面板中，不写入学习状态文件。AI 输出需要通过实际运行验证。
+只有主动提问或测试连接时才联系模型。学习上下文包括当前课、代码、当前课的笔记、完成状态和近期对话；API Key 只由 Go 引擎读取。AI 输出需要通过实际运行验证。
+
+**导师面板不是弹窗，是并排的一扇窗。** 它默认停靠在右侧，页面正文会让出同样宽度的空间：打开它照样能改代码、跑程序、翻笔记，也不会压住编辑器底部的运行按钮；把它拖走就变成浮窗，位置与大小记在 localStorage，双击标题栏回到停靠位。窄屏（小于 900px）下面板改成贴底的一整幅，同样不铺遮罩。
+
+**交谈会写进本机。** 提问先落盘、再请求模型，回答拿到后再写回，所以收起面板、刷新页面甚至重启应用，问题和回答都还在；每段对话记着最后一次讨论的课程、标题（取第一条提问）与更新时间。面板里的「对话历史」可以新建、切换、重命名和删除，删除需要再确认一次。只有主动提问时才写入，离线浏览课程不会产生任何对话记录。
 
 ### 1.3 本章小结
 
@@ -176,7 +180,7 @@ bash app/scripts/build-windows.sh
 
 ```bash
 bash app/scripts/build-windows-installer.sh                  # 版本取当前 git tag
-bash app/scripts/build-windows-installer.sh --version 0.5.0  # 或显式指定版本
+bash app/scripts/build-windows-installer.sh --version 0.6.0  # 或显式指定版本
 ```
 
 产物是 `app/release/GoStudy-Setup.exe`。脚本要求先跑过 `bash app/scripts/build-windows.sh`（要打包的 `GoStudy.exe` 就在 `app/release/`），并且要在 **Windows 上运行**——`ISCC.exe` 是 Windows 程序，装 Inno Setup 6.3+ 即可（`choco install innosetup`；装在别处时用环境变量 `ISCC` 指过去）。安装界面的简体中文来自仓库里的 `installer/windows/ChineseSimplified.isl`——Inno Setup 发行版本身并不带这个文件（源码树里有、安装包里没有），放进仓库后本地与 CI 用的是同一份。
@@ -284,7 +288,7 @@ flowchart TD
 
 ### 3.2 数据与运行边界
 
-默认状态文件为系统用户配置目录中的 `go-study/state.json`，Android 使用应用私有文件目录。保存采用临时文件再替换，写入失败会返回错误；文件权限在支持的系统上设为 `0600`。**API Key 当前以明文保存，没有使用 Windows 凭据管理器或 Android Keystore 加密**；Windows 的权限语义也不能只用 POSIX 文件模式证明。
+默认状态文件为系统用户配置目录中的 `go-study/state.json`，Android 使用应用私有文件目录。保存采用临时文件再替换，写入失败会返回错误；文件权限在支持的系统上设为 `0600`。学习进度、笔记、草稿、AI 设置与 **AI 对话记录**都在这个文件里；对话另有一份预算：最多 40 段、每段 200 条、单条 32 KiB、全部对话合计 1 MiB，超出时先丢最旧的对话再丢最旧的消息，保证这条写入路径不会因为聊天记录而失败。**API Key 当前以明文保存，没有使用 Windows 凭据管理器或 Android Keystore 加密**；Windows 的权限语义也不能只用 POSIX 文件模式证明。
 
 本机 API 使用每次启动生成的随机 token，校验 Host、Origin 和跨站请求，不开放任意跨域访问。模型请求禁止自动重定向，修改服务地址会清除旧密钥；未把新服务地址和旧 Key 隐式绑定。
 
@@ -309,17 +313,17 @@ go -C app run ./cmd/lessoncheck -embedded                 # 全量课程校验
 go -C app run ./cmd/lessoncheck -file backend/courses/grammar.json   # 单文件校验
 bash app/scripts/build-windows.sh
 bash app/scripts/build-windows-installer.sh --version 0.0.0   # 需在 Windows 上跑，且已装 Inno Setup 6.3+
-GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo pang-xianshu/gostudy-release --tag v0.5.0 --dry-run
-GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo pang-xianshu/gostudy-release --tag v0.5.0 --dir app/release
+GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo pang-xianshu/gostudy-release --tag v0.6.0 --dry-run
+GITEE_TOKEN=xxx bash app/scripts/publish-gitee-release.sh --repo pang-xianshu/gostudy-release --tag v0.6.0 --dir app/release
 ```
 
 后端验证全部 43 个练习的参考解答在真实解释器中通过、starter 一律不能直接通过，以及错误代码、超时与并发收尾、本机鉴权、非法来源、进度持久化、完成证明、模型请求和密钥隐藏。前端交互测试验证学习完成、失败重试、代码变更后重新校验、AI 配置、笔记和即时切页保存。模型接口测试使用本机模拟服务，不代表已验证用户的付费模型账号。
 
 本次依赖审计未完成：npm 官方源连接超时，镜像源的安全审计接口返回未实现。依赖安装和锁文件构建成功不能替代漏洞审计。
 
-界面验收使用无头 Chromium 完成：1440×940 与 390×844 两种视口下截取首页、课程目录、课程详情、动手挑战、AI 导师抽屉、笔记、设置页与手机端共八张截图，控制台无报错、无失败请求，两种视口都没有横向滚动；实测计算样式为页面底色 `rgb(246,247,247)`、卡片纯白、代码区 `rgb(16,23,25)`、代码文字 `rgb(223,232,234)`、编辑器工具条运行按钮反相为 `rgb(223,232,234)`，卡片为 1px 描边且无投影，样式表内渐变规则计数为 0；Space Grotesk 与 JetBrains Mono 加载成功且中文正常渲染。动效逐项实测：共享元素转场确实调用了 `startViewTransition` 且转场后无残留的 `view-transition-name`；运行过程依次出现「正在编译…」「比对期望输出…」并最终得到「挑战通过 · 3 ms」与两行带对勾的输出；抽屉的 `transform-origin` 为点击位置、头部 `touch-action` 为 `none`；顶栏分隔线透明度随滚动由 0 变 1。「减少动效」下界面直接呈现最终状态（无 `opacity: 0` 的隐藏元素、无打字光标、无位移）。截图验收能证明布局与配色未崩坏，但不能替代真机上的字体、交互与性能体验。Windows 退出流程已在本机验证：调用退出接口后进程结束、端口释放、重复退出保持幂等。Windows 安装包在 CI 的真实 Windows 运行器上编译验证：`windows-installer` 任务输出 `Successful compile`，产出约 5.8 MB 的 `GoStudy-Setup.exe`；下载产物后用 pefile 校验为 i386 PE、GUI 子系统、版本信息为 `GoStudy <版本> 安装程序`、图标资源七档齐全、含 `Inno Setup Setup Data` 标记。另外用 Wine 9.0 + Xvfb 对 CI 产物跑了一遍静默安装（`/VERYSILENT /DIR=C:\GoStudy /TASKS=desktopicon`）：安装目录里得到 `GoStudy.exe` 与卸载器，开始菜单 `GoStudy\GoStudy.lnk`、`Uninstall GoStudy.lnk` 与桌面快捷方式都建好，`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{FB9FE764-6145-4C0B-A69A-EC7730ADDC10}_is1` 里写入 `DisplayName`、`DisplayVersion`、`DisplayIcon`、`EstimatedSize` 等值；卸载器跑完后安装目录、三个快捷方式与注册表项全部清干净。从安装目录启动 `GoStudy.exe -selftest`，自检六项过五项，唯一失败的是「浏览器可用性」——Wine 里没有 Edge/Chrome，Windows 10/11 自带 Edge，真机上不会这样。**Wine 只能证明安装脚本、快捷方式与卸载逻辑对得上，不能替代 Windows 真机走一遍向导**（选目录页、任务勾选、结束页启动这三处交互仍需人工验收，安装包也无签名，会触发 SmartScreen）。
+界面验收使用无头 Chromium 完成：1440×940 与 390×844 两种视口下截取首页、课程目录、课程详情、动手挑战、AI 导师抽屉、笔记、设置页与手机端共八张截图，控制台无报错、无失败请求，两种视口都没有横向滚动；实测计算样式为页面底色 `rgb(246,247,247)`、卡片纯白、代码区 `rgb(16,23,25)`、代码文字 `rgb(223,232,234)`、编辑器工具条运行按钮反相为 `rgb(223,232,234)`，卡片为 1px 描边且无投影，样式表内渐变规则计数为 0；Space Grotesk 与 JetBrains Mono 加载成功且中文正常渲染。动效逐项实测：共享元素转场确实调用了 `startViewTransition` 且转场后无残留的 `view-transition-name`；运行过程依次出现「正在编译…」「比对期望输出…」并最终得到「挑战通过 · 3 ms」与两行带对勾的输出；导师面板实测为非模态：没有遮罩层与 `aria-modal`、`body` 不锁滚动，面板打开时点导航能正常切页、运行按钮的命中元素仍是它自己且「挑战通过」照常出现；收起再打开、刷新页面后消息与提问都还在；对话历史的新建、切换、重命名、删除逐项可用；把面板拖到 (706, 14) 后刷新，位置保持不变；414px 视口下面板是贴底的一整幅（100% × 84vh）且不铺遮罩；顶栏分隔线透明度随滚动由 0 变 1。「减少动效」下界面直接呈现最终状态（无 `opacity: 0` 的隐藏元素、无打字光标、无位移）。截图验收能证明布局与配色未崩坏，但不能替代真机上的字体、交互与性能体验。Windows 退出流程已在本机验证：调用退出接口后进程结束、端口释放、重复退出保持幂等。Windows 安装包在 CI 的真实 Windows 运行器上编译验证：`windows-installer` 任务输出 `Successful compile`，产出约 5.8 MB 的 `GoStudy-Setup.exe`；下载产物后用 pefile 校验为 i386 PE、GUI 子系统、版本信息为 `GoStudy <版本> 安装程序`、图标资源七档齐全、含 `Inno Setup Setup Data` 标记。另外用 Wine 9.0 + Xvfb 对 CI 产物跑了一遍静默安装（`/VERYSILENT /DIR=C:\GoStudy /TASKS=desktopicon`）：安装目录里得到 `GoStudy.exe` 与卸载器，开始菜单 `GoStudy\GoStudy.lnk`、`Uninstall GoStudy.lnk` 与桌面快捷方式都建好，`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{FB9FE764-6145-4C0B-A69A-EC7730ADDC10}_is1` 里写入 `DisplayName`、`DisplayVersion`、`DisplayIcon`、`EstimatedSize` 等值；卸载器跑完后安装目录、三个快捷方式与注册表项全部清干净。从安装目录启动 `GoStudy.exe -selftest`，自检六项过五项，唯一失败的是「浏览器可用性」——Wine 里没有 Edge/Chrome，Windows 10/11 自带 Edge，真机上不会这样。**Wine 只能证明安装脚本、快捷方式与卸载逻辑对得上，不能替代 Windows 真机走一遍向导**（选目录页、任务勾选、结束页启动这三处交互仍需人工验收，安装包也无签名，会触发 SmartScreen）。
 
-Android 构建环境与产物现状：本机已用官方源安装 SDK 35 / build-tools 35.0.0 / NDK 27.2.12479018，并据此产出并签署过 release APK（当时为 `versionName=0.3.1`，约 65 MB，含 arm64-v8a、armeabi-v7a、x86、x86_64 四种 ABI）。校验结果：`apksigner verify` 通过（APK Signature Scheme v2 + v3，证书 CN=GoStudy，非 debug 证书）、`aapt2 dump badging` 显示 `minSdkVersion=26`、`targetSdkVersion=35`，且没有 `application-debuggable` 标记。当前版本为 **0.5.0**（`versionCode 33`，`versionName '0.5.0'`），改由 `.github/workflows/release.yml` 在推送 `v*` tag 时构建并签名，密钥取自仓库 secret；发布资源名与下载说明保持一致（`GoStudy-android-release.apk`）。**但还没有在真机上安装并跑完学习流程**，触摸交互、WebView 表现和安装兼容性都需要真机验收。
+Android 构建环境与产物现状：本机已用官方源安装 SDK 35 / build-tools 35.0.0 / NDK 27.2.12479018，并据此产出并签署过 release APK（当时为 `versionName=0.3.1`，约 65 MB，含 arm64-v8a、armeabi-v7a、x86、x86_64 四种 ABI）。校验结果：`apksigner verify` 通过（APK Signature Scheme v2 + v3，证书 CN=GoStudy，非 debug 证书）、`aapt2 dump badging` 显示 `minSdkVersion=26`、`targetSdkVersion=35`，且没有 `application-debuggable` 标记。当前版本为 **0.6.0**（`versionCode 34`，`versionName '0.6.0'`），改由 `.github/workflows/release.yml` 在推送 `v*` tag 时构建并签名，密钥取自仓库 secret；发布资源名与下载说明保持一致（`GoStudy-android-release.apk`）。**但还没有在真机上安装并跑完学习流程**，触摸交互、WebView 表现和安装兼容性都需要真机验收。
 
 课程已覆盖仓库 `go-basic`、`go-advance`、`go-practice` 三部分共 8 篇文档的核心章节（43 节）。文档中较长篇幅的面试题汇总、框架集成细节（Gin、GORM、Redis、Kafka 等）尚未逐条转换为课程；仓库原有长篇资料保持完整。后续扩展课程应添加明确任务、可运行参考解答和预期输出，并纳入全课程执行测试。
 
