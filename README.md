@@ -83,36 +83,6 @@
 
 以上产物都在 [Releases](https://github.com/xianshujun/awsome-go-study/releases) 里；[落地页](https://xianshujun.github.io/awsome-go-study/)的下载按钮直接指向最新版本的产物文件，点一下就开始下载，不必再进 Release 页面挑文件。各平台产物的细节与构建方式见[应用说明](app/README.md)的「2.2 Windows 应用」与「2.3 Android 应用」。
 
-**国内镜像（Gitee）**
-
-GitHub 的产物文件走 `objects.githubusercontent.com`，国内经常只有几十 KB/s，所以每次发布都会把同一批文件镜像一份到 Gitee。**落地页不让你选**：它自己看访客的位置决定下载源——国内访客默认走 Gitee，海外访客走 GitHub，镜像版本对不上、少了文件或读不到时自动回落 GitHub；卡片上只有「直接下载」，不会出现两个源让你挑。
-
-- 镜像地址与 GitHub 同形，把域名换掉即可：`https://gitee.com/pang-xianshu/gostudy-release/releases/download/latest/GoStudy-Setup.exe`（`latest` 也可以换成具体 tag）。
-- **推荐做法：发版时直接在本机传。** 本机到 Gitee 实测 1.6 MB/s，5 个文件合计 110 MB 一分多钟就传完；命令见下面的「发布时在本机镜像」。内容是**从 GitHub Release 下载下来的同一批文件**，两边必然一致；上传是幂等的（同名文件先传新的、成功后再删旧的），随时可以重跑。
-- `.github/workflows/release.yml` 里还有一个 `gitee-mirror` 任务作为兜底（没在本机传时它会自动跑）。
-- ⚠️ 兜底任务走的 GitHub 运行器出口到 Gitee 会被限速（几十 KB/s，实测 25 分钟才传完 3 个文件；67 MB 的 APK 更久）。脚本会在「低于 10 KB/s 持续 60 秒」时直接报错退出（任务本身封顶 90 分钟），不会干挂——所以别等它，本机传更快。镜像的上传顺序是先传新的、成功后再删旧的，中途失败也不会把已镜像的版本改坏。
-- **没配置令牌时这一步自动跳过**，流水线照常是绿的。
-
-一次性开通步骤：
-
-1. 注册 Gitee 账号；如提示需要实名认证，按提示完成（Gitee 的部分功能对实名有要求）。
-2. 新建一个公开仓库专门放产物，例如 `gostudy-release`，并初始化 README——创建发行版要指定分支，所以仓库里得先有分支。
-3. 生成私人令牌：Gitee → 头像 → 设置 → 私人令牌 → 生成新令牌，勾选 `projects` 权限。
-4. 在 GitHub 仓库 → Settings → Secrets and variables → Actions 里加 secret `GITEE_TOKEN`（值为上一步的令牌）。想用别的仓库名，再在同一页的 Variables 里加 `GITEE_REPO`（默认 `pang-xianshu/gostudy-release`），同时改 `landing/src/main.tsx` 里的 `GITEE_REPO` 常量。
-5. 补发已发布的版本：Actions → Release → Run workflow，`gitee_tag` 填 `v0.4.0`；之后每次推 `v*` tag 都会自动镜像。
-
-发布时在本机镜像（推荐，需要令牌）：
-
-```bash
-GITEE_TOKEN=你的令牌 bash app/scripts/publish-gitee-release.sh \
-    --repo pang-xianshu/gostudy-release --tag v0.6.0 --dir app/release
-```
-
-> ⚠️ 我们的包最大是 APK 约 65 MB，在 Gitee 免费仓库的附件限制内；如果以后有更大的产物被拒，日志里会写明原因，也可以只镜像桌面端两个文件。
-
-Android 说明：APK 为**正式签名**（APK Signature Scheme v2 + v3，自签名证书，非应用商店分发），内含 arm64-v8a / armeabi-v7a / x86 / x86_64 四种 ABI，约 65 MB；安装时需要允许「未知来源」。签名密钥由维护者保管，一旦丢失将导致后续版本无法覆盖安装，请勿提交到仓库。
-开始使用、AI 配置和构建方法见 [应用说明](app/README.md)。
-
 ---
 
 
