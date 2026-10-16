@@ -15,11 +15,12 @@ fi
 require_go
 [[ -d "$APP_DIR/cmd/gostudy" ]] || fail 'cmd/gostudy is missing.'
 build_frontend
+printf '版本 %s\n' "$(release_version)"
 mkdir -p -- "$APP_DIR/release"
 # 纯 Go、无 CGO：产物可直接在常见发行版上运行。
 for arch in amd64 arm64; do
     (cd -- "$APP_DIR"; GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
-        go build -trimpath -ldflags '-s -w' -o "release/GoStudy-linux-$arch" ./cmd/gostudy)
+        go build -trimpath -ldflags "-s -w $(version_ldflags)" -o "release/GoStudy-linux-$arch" ./cmd/gostudy)
     chmod 0755 "$APP_DIR/release/GoStudy-linux-$arch"
     printf 'Linux %s: %s\n' "$arch" "$APP_DIR/release/GoStudy-linux-$arch"
 done

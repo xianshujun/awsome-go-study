@@ -54,6 +54,7 @@ cp -R -- "$APP_DIR/backend" "$APP_DIR/mobile" "$APP_DIR/web" "$STAGING/"
     cd -- "$STAGING"
     go get "golang.org/x/mobile/bind@$MOBILE_VERSION"
     GOFLAGS=-mod=mod gomobile bind -target=android -androidapi 26 \
+        -ldflags "-X github.com/xianshujun/awsome-go-study/app/backend.Version=$(release_version)" \
         -o "$APP_DIR/android/app/libs/gostudy.aar" ./mobile
 )
 (cd -- "$APP_DIR/android"; ./gradlew --no-daemon "$TASK")

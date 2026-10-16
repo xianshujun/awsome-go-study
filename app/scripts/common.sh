@@ -19,6 +19,26 @@ build_frontend() {
     (cd -- "$APP_DIR/frontend"; npm ci --no-audit --no-fund; npm run build)
     [[ -s "$APP_DIR/web/dist/index.html" ]] || fail 'Frontend build must produce web/dist/index.html.'
 }
+# release_version：优先取当前 tag，其次退回 0.0.0。
+# 版本号只在这里推导，然后用 -ldflags 注入到 backend.Version，
+# 这样"程序自报的版本"和 tag 永远不会对不上。
+release_version() {
+    local tag
+    tag="$(git -C "$APP_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
+    tag="${tag#v}"
+    if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        printf '%s' "$tag"
+    else
+        printf '0.0.0'
+    fi
+}
+
+# version_ldflags：把版本号注入 Go 构建。
+version_ldflags() {
+    local extra="${1:-}"
+    printf -- '-X github.com/xianshujun/awsome-go-study/app/backend.Version=%s%s' "$(release_version)" "$extra"
+}
+
 require_go() {
     require_command go
     local version major minor

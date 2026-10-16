@@ -241,11 +241,68 @@ jobs:
             app/release/GoStudy-release-unsigned.apk
           if-no-files-found: ignore
 
+  manifest:
+    name: 发布清单与内容包
+    # 等三平台产物都进 Release 之后再生成清单，清单里的 sha256 才是最终产物的。
+    needs: [desktop, windows-installer, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 取回 Release 上的产物
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" != "push" || -z "${tag}" ]]; then
+            echo "非 tag 触发，跳过清单生成。"
+            exit 0
+          fi
+          mkdir -p dist
+          gh release download "$tag" --dir dist --clobber
+          ls -la dist
+
+      - name: 生成 update.json 与课程内容包
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # 更新说明直接取这次 Release 的正文（generate-notes 生成的那份）。
+          gh release view "$tag" --json body --jq .body > /tmp/notes.md
+          bash app/scripts/make-update-manifest.sh \
+            --version "${tag#v}" --dir dist --out-dir dist --notes-file /tmp/notes.md \
+            --released "$(date -u +%F)"
+
+      - name: 上传清单与内容包
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release upload "$tag" dist/update.json dist/content.json dist/content.zip --clobber
+
+      - name: 更新 content 频道
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 内容频道是一个固定 tag 的 Release，只放这两个文件；
+          # 这样"只改课程内容"也能单独发布，不用动程序版本。
+          gh release view content >/dev/null 2>&1 \
+            || gh release create content --title "课程内容包" --notes "课程内容按内容哈希版本化，应用会自行判断是否需要更新。" \
+            || echo "content 频道已存在，继续上传。"
+          gh release upload content dist/content.json dist/content.zip --clobber
+
   gitee-mirror:
     name: Gitee 国内镜像
     # 镜像的内容直接取自 GitHub Release，而不是各任务的构建产物：
     # 这样两边发布的东西一定一致，也能单独补发某个历史版本。
-    needs: [desktop, windows-installer, android]
+    needs: [desktop, windows-installer, android, manifest]
     runs-on: ubuntu-latest
     # 从 GitHub 运行器往 Gitee 传大文件会被限速（实测 6 MB 要 4 分钟，67 MB 的 APK 要十几分钟），
     # 所以上限给得宽松；真正卡死的情况由脚本里的速率兜底（低于 10 KB/s 持续 60 秒）拦下。
