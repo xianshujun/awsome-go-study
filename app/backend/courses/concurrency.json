@@ -39,6 +39,14 @@
         "`go` 启动的 goroutine 不会被自动等待，main 返回时它们会被直接终结。",
         "没有 WaitGroup 时，用 done 通道做完成通知：子任务 close(done)，main `<-done`。",
         "close 是广播语义，适合「只通知结束」的场景；不要用 sleep 猜子任务有没有跑完。"
+      ],
+      "checks": [
+        {
+          "kind": "call",
+          "name": "close",
+          "arg": "done",
+          "hint": "子任务结束前要 close(done) 通知 main。"
+        }
       ]
     },
     {
@@ -138,6 +146,13 @@
         "select 同时监听多个通道，只执行就绪的分支；都没就绪就阻塞，加 default 则不阻塞。",
         "`v, ok := <-ch` 是判断通道关闭的标准方式，ok 为 false 时 v 是零值。",
         "select 里的 break 只跳出 select，跳出 for 循环要配合标签。"
+      ],
+      "checks": [
+        {
+          "kind": "twoValueReceive",
+          "name": "results",
+          "hint": "关闭的通道会返回零值，必须用 v, ok := <-results 判断。"
+        }
       ]
     },
     {
@@ -204,6 +219,15 @@
         "Pipeline 把任务拆成多个阶段，阶段间用 channel 连接，各阶段可以同时工作。",
         "每个阶段读完上游后要关闭自己的下游通道，整条流水线才能依次收尾。",
         "done 通道是 context 取消信号的最小模型：select 收到就提前 return。"
+      ],
+      "checks": [
+        {
+          "kind": "defer",
+          "name": "close",
+          "arg": "out",
+          "min": 2,
+          "hint": "guarded 和 relay 两个阶段都要在结束时 close(out)。"
+        }
       ]
     }
   ]

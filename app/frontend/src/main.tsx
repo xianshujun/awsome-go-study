@@ -35,6 +35,7 @@ import {
   Clock3,
   Code2,
   Compass,
+  Copy,
   FileText,
   Flag,
   History,
@@ -51,6 +52,7 @@ import {
   Settings2,
   ShieldCheck,
   Sprout,
+  Square,
   SquarePen,
   Terminal,
   Trash2,
@@ -96,6 +98,7 @@ import type { Updater } from "./updater";
 import "./styles.css";
 
 type View = "home" | "courses" | "learn" | "notes" | "settings";
+type RouteState = { view: View; lessonId?: string };
 const icons = [Sprout, Layers3, Code2, Flag];
 const editorExtensions = [go(), ...editorTheme];
 const navigation: { id: View; label: string; icon: typeof Compass }[] = [
@@ -165,6 +168,34 @@ function tokenizeGo(source: string): Token[] {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * 课程正文、笔记和 AI 回复共用的 Markdown 渲染。
+ * 外部链接一律开新窗口：应用窗口本身一导航走就会触发 pagehide，
+ * 引擎可能把“点了个链接”当成“用户关掉了应用”。
+ */
+function Markdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        a: ({ href, children: label }) => {
+          const external = Boolean(href && /^https?:\/\//i.test(href));
+          return (
+            <a
+              href={href}
+              target={external ? "_blank" : undefined}
+              rel={external ? "noopener noreferrer" : undefined}
+            >
+              {label}
+            </a>
+          );
+        },
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
+
+/**
  * 共享元素转场：点中的元素带上 view-transition-name，由浏览器把"旧卡片 → 新页面"
  * 连成一帧动画。平台不支持（含 jsdom）或用户要求减少动效时，退化成直接切换。
  */
@@ -220,6 +251,7 @@ export function App() {
   const [lessonId, setLessonId] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantCode, setAssistantCode] = useState<string>();
+  const [assistantRun, setAssistantRun] = useState<RunResult>();
   const [toast, setToast] = useState("");
   const [quit, setQuit] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
@@ -253,11 +285,31 @@ export function App() {
   }, []);
   // bootstrap 回来后再恢复上次的对话：面板在没打开时就已经准备好了内容。
   useEffect(() => hydrateTutor(data?.conversations), [data?.conversations, hydrateTutor]);
+  // 安卓返回键与浏览器后退：把页面内的导航写进 history，返回时恢复上一屏。
+  useEffect(() => {
+    window.history.replaceState({ view: "home" } satisfies RouteState, "");
+    const onPop = (event: PopStateEvent) => {
+      const state = event.state as RouteState | null;
+      if (!state?.view) return;
+      setView(state.view);
+      if (state.lessonId) setLessonId(state.lessonId);
+      setAssistantCode(undefined);
+      setAssistantRun(undefined);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const openLesson = (id: string) => {
     setLessonId(id);
     setAssistantCode(undefined);
+    setAssistantRun(undefined);
     setView("learn");
     window.scrollTo(0, 0);
+    const state = window.history.state as RouteState | null;
+    if (state?.view !== "learn" || state?.lessonId !== id) {
+      window.history.pushState({ view: "learn", lessonId: id } satisfies RouteState, "");
+    }
   };
   const updateProgress = useCallback(
     (progress: Progress) =>
@@ -277,6 +329,10 @@ export function App() {
   const navigate = (id: View) => {
     setView(id);
     window.scrollTo(0, 0);
+    const state = window.history.state as RouteState | null;
+    if (state?.view !== id) {
+      window.history.pushState({ view: id, lessonId: id === "learn" ? lessonId : undefined } satisfies RouteState, "");
+    }
   };
   const openAssistant = useCallback((open: boolean) => setAssistantOpen(open), []);
 
@@ -310,10 +366,12 @@ export function App() {
             updater={updater}
             onAssistant={openAssistant}
             notesCount={Object.values(data.progress.notes || {}).filter(Boolean).length}
-              lessonId={lessonId}
-              assistantCode={assistantCode}
-              onCodeChange={setAssistantCode}
-              onOpenLesson={openLesson}
+            lessonId={lessonId}
+            assistantCode={assistantCode}
+            assistantRun={assistantRun}
+            onCodeChange={setAssistantCode}
+            onRunResult={setAssistantRun}
+            onOpenLesson={openLesson}
             onProgress={updateProgress}
             onSettings={updateSettings}
             onNotify={notify}
@@ -353,6 +411,7 @@ function Shell({
   notesCount,
   lessonId,
   assistantCode,
+  assistantRun,
   onOpenLesson,
   onProgress,
   onSettings,
@@ -362,6 +421,7 @@ function Shell({
   prefs,
   onPrefs,
   onCodeChange,
+  onRunResult,
 }: {
   data: Bootstrap;
   view: View;
@@ -373,7 +433,9 @@ function Shell({
   notesCount: number;
   lessonId: string;
   assistantCode?: string;
+  assistantRun?: RunResult;
   onCodeChange: (code: string) => void;
+  onRunResult: (result?: RunResult) => void;
   onOpenLesson: (id: string) => void;
   onProgress: (progress: Progress) => void;
   onSettings: (settings: Settings) => void;
@@ -531,7 +593,7 @@ function Shell({
                   />
                 </Meter.Root>
               </StatCard>
-              <StatCard label="完成的章节" icon={Layers3} index={1} motionOn={motionOn}>
+              <StatCard label="完成的课程" icon={Layers3} index={1} motionOn={motionOn}>
                 <strong className="stat-value">
                   {masterCourses}
                   <em>/ {data.courses.length}</em>
@@ -552,7 +614,7 @@ function Shell({
               <div className="section-head">
                 <div>
                   <span className="eyebrow">课程路线</span>
-                  <h2>四章内容，从语法到工程</h2>
+                  <h2>{data.courses.length} 门课程，从语法到工程</h2>
                 </div>
                 <button className="text-button" onClick={() => onNavigate("courses")}>
                   全部课程 <ArrowRight size={16} />
@@ -606,7 +668,7 @@ function Shell({
             <PageHeading
               label="全部课程"
               title="按章节浏览，也可以直接挑一节开跑。"
-              description="四章内容按依赖顺序排好了，进度自动保存在本机，随时可以跳着学。"
+              description="课程按依赖顺序排好了，进度自动保存在本机，随时可以跳着学。"
             />
             <div className="catalog">
               {data.courses.map((course, index) => {
@@ -679,6 +741,7 @@ function Shell({
             course={currentCourse}
             data={data}
             onCodeChange={onCodeChange}
+            onRunResult={onRunResult}
             onProgress={onProgress}
             onNext={onOpenLesson}
             onCourses={() => onNavigate("courses")}
@@ -719,6 +782,7 @@ function Shell({
                 ? assistantCode ?? data.progress.drafts?.[currentLesson.id]
                 : data.progress.drafts?.[next.id]
             }
+            lastRun={view === "learn" ? assistantRun : undefined}
             lessons={data.lessons}
             settings={data.settings}
             onClose={() => onAssistant(false)}
@@ -1032,6 +1096,7 @@ function LearningWorkspace({
   course,
   data,
   onCodeChange,
+  onRunResult,
   onProgress,
   onNext,
   onCourses,
@@ -1043,6 +1108,7 @@ function LearningWorkspace({
   course: Course;
   data: Bootstrap;
   onCodeChange: (code: string) => void;
+  onRunResult: (result?: RunResult) => void;
   onProgress: (p: Progress) => void;
   onNext: (id: string) => void;
   onCourses: () => void;
@@ -1118,11 +1184,13 @@ function LearningWorkspace({
         await wait(runPhases.compare);
       }
       setResult(value);
+      onRunResult(value);
       setTab("task");
       setPhase("idle");
       haptic(value.passed ? [12] : [8, 40, 8]);
     } catch (err) {
       setError((err as Error).message);
+      onRunResult(undefined);
       setPhase("idle");
       haptic([8, 40, 8]);
     } finally {
@@ -1155,6 +1223,20 @@ function LearningWorkspace({
     () => lesson.expectedOutput.replace(/\n$/, "").split("\n"),
     [lesson.expectedOutput],
   );
+  // 43 节课的 task 里已经原样写了期望输出，别再重复渲染一个同样的盒子。
+  const taskIncludesOutput = lesson.task.includes(lesson.expectedOutput.trim());
+  const copyResult = () => {
+    const text = result?.error || result?.output || error;
+    if (!text) return;
+    if (!navigator.clipboard) {
+      onNotify("当前环境不允许剪贴板访问。");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => onNotify("运行结果已复制。"))
+      .catch(() => onNotify("当前环境不允许剪贴板访问。"));
+  };
   const actualLines = useMemo(
     () => (result?.output ?? "").replace(/\n$/, "").split("\n"),
     [result?.output],
@@ -1270,7 +1352,7 @@ function LearningWorkspace({
               <>
                 <span className="eyebrow">01 · 先理解，再动手</span>
                 <div className="markdown">
-                  <ReactMarkdown>{lesson.concept}</ReactMarkdown>
+                  <Markdown>{lesson.concept}</Markdown>
                 </div>
                 <Accordion.Root type="single" collapsible className="reference-example">
                   <Accordion.Item value="example">
@@ -1283,7 +1365,7 @@ function LearningWorkspace({
                     </Accordion.Header>
                     <Accordion.Content className="accordion-content">
                       <div className="markdown accordion-inner">
-                        <ReactMarkdown>{"```go\n" + lesson.example + "\n```"}</ReactMarkdown>
+                        <Markdown>{"```go\n" + lesson.example + "\n```"}</Markdown>
                       </div>
                     </Accordion.Content>
                   </Accordion.Item>
@@ -1309,12 +1391,14 @@ function LearningWorkspace({
                 <span className="eyebrow">02 · 把理解写成代码</span>
                 <h2>你的挑战</h2>
                 <div className="markdown">
-                  <ReactMarkdown>{lesson.task}</ReactMarkdown>
+                  <Markdown>{lesson.task}</Markdown>
                 </div>
-                <div className="expected-output">
-                  <span>期望输出</span>
-                  <pre>{lesson.expectedOutput}</pre>
-                </div>
+                {!taskIncludesOutput && (
+                  <div className="expected-output">
+                    <span>期望输出</span>
+                    <pre>{lesson.expectedOutput}</pre>
+                  </div>
+                )}
                 <button
                   className="text-button hint-button"
                   disabled={hint >= lesson.hints.length}
@@ -1441,7 +1525,15 @@ function LearningWorkspace({
             )}
           </div>
         </section>
-        <section className="editor-panel">
+        <section
+          className="editor-panel"
+          onKeyDown={(event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+              event.preventDefault();
+              if (!running) void run();
+            }
+          }}
+        >
           <div className="editor-header">
             <span>
               <Code2 size={15} />
@@ -1455,8 +1547,10 @@ function LearningWorkspace({
                   aria-label="还原初始代码"
                   disabled={running}
                   onClick={() => {
+                    if (!window.confirm("还原为初始代码？当前修改会被覆盖。")) return;
                     setCode(lesson.starter);
                     setResult(undefined);
+                    onRunResult(undefined);
                   }}
                 >
                   <RotateCcw size={15} />
@@ -1477,6 +1571,7 @@ function LearningWorkspace({
             onChange={(value) => {
               setCode(value);
               setResult(undefined);
+              onRunResult(undefined);
             }}
             height="360px"
             basicSetup={{ foldGutter: false, highlightActiveLine: true }}
@@ -1491,6 +1586,7 @@ function LearningWorkspace({
               className="button primary run-button"
               disabled={running}
               onClick={run}
+              title="Ctrl / Cmd + Enter"
               {...lift(motionOn)}
             >
               {running ? (
@@ -1506,17 +1602,30 @@ function LearningWorkspace({
               <Terminal size={15} />
               运行结果
             </span>
-            {phase !== "idle" ? (
-              <span className="console-phase-chip">
-                <LoaderCircle className="spin" size={11} />
-                {phaseLabel[phase]}
-              </span>
-            ) : result ? (
-              <span className={result.passed ? "result-success" : "muted"}>
-                {result.passed ? "挑战通过" : result.error ? "需要调整" : "继续试试"} ·{" "}
-                {result.durationMs} ms
-              </span>
-            ) : null}
+            <div className="console-meta">
+              {phase !== "idle" ? (
+                <span className="console-phase-chip">
+                  <LoaderCircle className="spin" size={11} />
+                  {phaseLabel[phase]}
+                </span>
+              ) : result ? (
+                <span className={result.passed ? "result-success" : "muted"}>
+                  {result.passed ? "挑战通过" : result.error ? "需要调整" : "继续试试"} ·{" "}
+                  {result.durationMs} ms
+                </span>
+              ) : null}
+              {(result || error) && (
+                <>
+                  <button className="text-button console-action" onClick={copyResult}>
+                    <Copy size={12} />
+                    复制
+                  </button>
+                  <button className="text-button console-action" onClick={onAI}>
+                    问导师
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           <div
             className={`console ${result?.error || error ? "console-error" : ""}`}
@@ -1550,8 +1659,21 @@ function LearningWorkspace({
                     })}
                   </div>
                 )}
-                {!result.passed && !result.error && (
+                {!result.passed && !result.error && !result.checks?.some((check) => !check.passed) && (
                   <p className="console-tip">运行成功。再对照左侧期望输出调整一下。</p>
+                )}
+                {result.checks?.some((check) => !check.passed) && (
+                  <div className="check-results">
+                    <span>还差这些语言点</span>
+                    {result.checks
+                      .filter((check) => !check.passed)
+                      .map((check) => (
+                        <p key={`${check.kind}-${check.name ?? ""}`}>
+                          <strong>{check.label}</strong>
+                          {check.hint}
+                        </p>
+                      ))}
+                  </div>
                 )}
               </motion.div>
             ) : (
@@ -1629,6 +1751,7 @@ function Assistant({
   tutor,
   lesson,
   code,
+  lastRun,
   lessons,
   settings,
   onClose,
@@ -1639,6 +1762,7 @@ function Assistant({
   tutor: Tutor;
   lesson: Lesson;
   code?: string;
+  lastRun?: RunResult;
   lessons: Lesson[];
   settings: Settings;
   onClose: () => void;
@@ -1665,7 +1789,7 @@ function Assistant({
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [tutor.messages, tutor.sending, historyOpen]);
+  }, [tutor.messages, tutor.draft, tutor.sending, historyOpen]);
   useEffect(() => {
     const fit = () =>
       setBox((current) =>
@@ -1682,7 +1806,7 @@ function Assistant({
     return () => onDock(0);
   }, [box.docked, box.width, onDock]);
 
-  const context = { lessonId: lesson.id, code };
+  const context = { lessonId: lesson.id, code, lastRun };
   const send = (message = input) => {
     const text = message.trim();
     if (!text || tutor.sending || !ready) return;
@@ -2017,6 +2141,7 @@ function Assistant({
                         ) : (
                           <div className="suggestions">
                             {[
+                              ...(lastRun?.error ? ["帮我看看刚才的报错"] : []),
                               "用一个生活中的例子解释这一课",
                               "给我一点提示，先不要告诉我答案",
                               "看看我的代码，引导我找出问题",
@@ -2040,11 +2165,20 @@ function Assistant({
                           {message.role === "user" ? "你" : "AI 导师"}
                         </span>
                         <div className="markdown">
-                          <ReactMarkdown>{message.content}</ReactMarkdown>
+                          <Markdown>{message.content}</Markdown>
                         </div>
                       </motion.div>
                     ))}
-                    {tutor.sending && (
+                    {tutor.draft && (
+                      <div className="chat-message assistant">
+                        <span className="message-label">AI 导师</span>
+                        <div className="markdown">
+                          <Markdown>{tutor.draft}</Markdown>
+                          <span className="stream-cursor" aria-hidden="true" />
+                        </div>
+                      </div>
+                    )}
+                    {tutor.sending && !tutor.draft && (
                       <div className="thinking">
                         <LoaderCircle size={15} className="spin" />
                         正在换个角度想一想…
@@ -2084,14 +2218,26 @@ function Assistant({
                     />
                     <div>
                       <span>Enter 发送 · Shift + Enter 换行</span>
-                      <button
-                        className="send-button"
-                        type="submit"
-                        disabled={tutor.sending || !input.trim() || !ready}
-                        aria-label="发送消息"
-                      >
-                        <Send size={17} />
-                      </button>
+                      {tutor.sending ? (
+                        <button
+                          className="send-button stop-button"
+                          type="button"
+                          onClick={tutor.cancel}
+                          aria-label="停止生成"
+                          title="停止生成"
+                        >
+                          <Square size={14} fill="currentColor" />
+                        </button>
+                      ) : (
+                        <button
+                          className="send-button"
+                          type="submit"
+                          disabled={!input.trim() || !ready}
+                          aria-label="发送消息"
+                        >
+                          <Send size={17} />
+                        </button>
+                      )}
                     </div>
                   </form>
                   <p className="ai-disclaimer">
@@ -2199,7 +2345,7 @@ function UpdateCard({
           </div>
           {app.notes && (
             <div className="markdown update-notes">
-              <ReactMarkdown>{app.notes}</ReactMarkdown>
+              <Markdown>{app.notes}</Markdown>
             </div>
           )}
           <div className="update-actions">
@@ -2900,7 +3046,7 @@ function Notes({
               </span>
               <h2>{lesson.title}</h2>
               <div className="markdown">
-                <ReactMarkdown>{data.progress.notes[lesson.id]}</ReactMarkdown>
+                <Markdown>{data.progress.notes[lesson.id]}</Markdown>
               </div>
               <button className="text-button" onClick={() => onOpen(lesson.id)}>
                 回到这一课 <ArrowRight size={15} />

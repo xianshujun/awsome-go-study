@@ -47,6 +47,8 @@ type RequestBody = {
   baseUrl?: string; model?: string; apiKey?: string; clearKey?: boolean; message?: string;
   action?: string; id?: string; role?: string; content?: string; title?: string;
   history?: { role: string; content: string }[];
+  stream?: boolean;
+  lastRun?: { output?: string; error?: string; passed: boolean };
 };
 type RecordedRequest = { path: string; body?: RequestBody; authorization: string | null };
 type StoredChat = { id: string; title: string; lessonId: string; updatedAt: number; messages: { role: 'user' | 'assistant'; content: string; at: number }[] };
@@ -634,6 +636,24 @@ describe('学习空间的关键交互', () => {
     await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
     expect(screen.queryByRole('button', { name: '卸载' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '退出 GoStudy' })).toBeVisible();
+  });
+
+  it('把最近一次运行结果带进导师上下文，并使用流式请求', async () => {
+    const user = userEvent.setup();
+    await useLocalModel(user);
+    const dialog = await openTutor(user);
+    runResponse = async () => json({ output: '', error: 'boom', passed: false, durationMs: 2 } satisfies RunResult);
+    await replaceCode(user, 'package main\n\nfunc main() {}');
+    await user.click(screen.getByRole('button', { name: '运行代码' }));
+    await screen.findByText(/需要调整/);
+
+    await user.type(within(dialog).getByRole('textbox', { name: '向 AI 导师提问' }), '为什么运行失败？');
+    await user.click(within(dialog).getByRole('button', { name: '发送消息' }));
+    await within(dialog).findByText('连接成功，可以开始学习。');
+
+    const chat = requests.find(request => request.path === 'chat' && request.body?.message === '为什么运行失败？');
+    expect(chat?.body?.stream).toBe(true);
+    expect(chat?.body?.lastRun).toMatchObject({ error: 'boom', passed: false });
   });
 
   it('关窗口时用 sendBeacon 报信，带不出 request 头的老浏览器退回 fetch', async () => {

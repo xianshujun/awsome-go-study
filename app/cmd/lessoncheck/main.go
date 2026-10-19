@@ -56,18 +56,31 @@ func main() {
 	for _, g := range groups {
 		fmt.Printf("课程 %s · %s（%d 节）\n", g.course.ID, g.course.Title, len(g.lessons))
 		for _, lesson := range g.lessons {
-			solution := runner.Run(context.Background(), lesson.Example, lesson.ExpectedOutput)
+			solution := runner.Run(context.Background(), lesson.Example, lesson.ExpectedOutput, lesson.Checks...)
 			if !solution.Passed {
 				failed++
 				detail, _ := json.Marshal(solution)
 				fmt.Printf("  ✗ %-24s 参考解答未通过：%s\n", lesson.ID, detail)
 				continue
 			}
-			starter := runner.Run(context.Background(), lesson.Starter, lesson.ExpectedOutput)
+			starter := runner.Run(context.Background(), lesson.Starter, lesson.ExpectedOutput, lesson.Checks...)
 			if starter.Passed {
 				failed++
 				fmt.Printf("  ✗ %-24s starter 与期望输出一致，任务缺少修改空间\n", lesson.ID)
 				continue
+			}
+			if len(lesson.Checks) > 0 {
+				allPassed := true
+				for _, check := range starter.Checks {
+					if !check.Passed {
+						allPassed = false
+					}
+				}
+				if allPassed {
+					failed++
+					fmt.Printf("  ✗ %-24s starter 没通过输出，但所有结构检查都通过了：检查太松\n", lesson.ID)
+					continue
+				}
 			}
 			fmt.Printf("  ✓ %-24s %s\n", lesson.ID, lesson.Title)
 		}

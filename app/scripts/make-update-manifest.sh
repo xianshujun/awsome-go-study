@@ -6,7 +6,7 @@
 #   content.json  内容包清单：版本（内容哈希）、大小、sha256
 #
 # 用法（在仓库里执行）：
-#   bash app/scripts/make-update-manifest.sh --version 0.8.1 --dir app/release \
+#   bash app/scripts/make-update-manifest.sh --version 0.9.0 --dir app/release \
 #       --notes "本版修好了…" --out-dir app/release
 #
 # 说明：
@@ -25,6 +25,7 @@ NOTES=''
 NOTES_FILE=''
 RELEASED="$(date -u +%F)"
 CONTENT_SOURCE="$APP_DIR/backend/courses"
+MIN_APP_VERSION=''
 
 usage() {
     printf '%s\n' \
@@ -37,6 +38,7 @@ usage() {
         '  --notes-file 文件          从文件读更新说明（与 --notes 二选一）' \
         '  --released YYYY-MM-DD      发布日期，默认今天' \
         '  --content-dir 目录         课程目录，默认 app/backend/courses' \
+        '  --min-app-version X.Y.Z    课程内容要求的最低程序版本（可选）' \
         '  --content-only             只生成课程内容包，不生成 update.json（只改课程内容时用）'
 }
 
@@ -49,6 +51,7 @@ while [[ $# -gt 0 ]]; do
         --notes-file) [[ $# -ge 2 ]] || fail '--notes-file 需要一个值'; NOTES_FILE="$2"; shift 2 ;;
         --released) [[ $# -ge 2 ]] || fail '--released 需要一个值'; RELEASED="$2"; shift 2 ;;
         --content-dir) [[ $# -ge 2 ]] || fail '--content-dir 需要一个值'; CONTENT_SOURCE="$2"; shift 2 ;;
+        --min-app-version) [[ $# -ge 2 ]] || fail '--min-app-version 需要一个值'; MIN_APP_VERSION="$2"; shift 2 ;;
         --content-only) CONTENT_ONLY='yes'; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; fail "未知参数：$1" ;;
@@ -107,7 +110,7 @@ PY
 fi
 
 # 课程内容包：把 courses/*.json 打成一个 zip，版本号取内容的哈希。
-CONTENT_DIR="$CONTENT_SOURCE" OUT_DIR="$OUT_DIR" python3 - <<'PY'
+CONTENT_DIR="$CONTENT_SOURCE" OUT_DIR="$OUT_DIR" MIN_APP_VERSION="$MIN_APP_VERSION" python3 - <<'PY'
 import hashlib, json, os, pathlib, zipfile
 
 content_dir = pathlib.Path(os.environ["CONTENT_DIR"])
@@ -141,6 +144,9 @@ info = {
     "pack": {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()},
     "notes": f"{len(names)} 门课程的内容包",
 }
+min_app = os.environ.get("MIN_APP_VERSION", "").strip()
+if min_app:
+    info["minAppVersion"] = min_app
 (out_dir / "content.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(f"content.json：版本 {version}，{len(names)} 个课程文件，{len(data)} 字节")
 PY

@@ -364,7 +364,7 @@ func (e *Engine) handleRun(w http.ResponseWriter, r *http.Request) {
 	p.valid = false
 	e.proofs[l.ID] = p
 	e.mu.Unlock()
-	result := e.runner.Run(r.Context(), req.Code, l.ExpectedOutput)
+	result := e.runner.Run(r.Context(), req.Code, l.ExpectedOutput, l.Checks...)
 	e.mu.Lock()
 	current := e.proofs[l.ID]
 	if current.generation == p.generation {
@@ -519,12 +519,61 @@ func (e *Engine) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 429, "AI 正在处理其他问题，请稍后重试")
 		return
 	}
+	if req.Stream {
+		e.handleChatStream(w, r, req, l)
+		return
+	}
 	reply, err := e.chat(r.Context(), req, l)
 	if err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]string{"reply": reply})
+}
+
+/*
+handleChatStream 以 SSE 把模型输出逐段转发给页面。
+
+先做一遍 planChat 校验配置，错误仍然用普通 JSON 返回；校验通过后才切到
+text/event-stream，因此前端可以按 Content-Type 决定走流式还是普通 JSON。
+*/
+func (e *Engine) handleChatStream(w http.ResponseWriter, r *http.Request, req chatRequest, l Lesson) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "当前环境不支持流式响应")
+		return
+	}
+	if _, err := e.planChat(req, l); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	send := func(value any) error {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+	if err := send(map[string]any{"start": true}); err != nil {
+		return
+	}
+	reply, err := e.chatStream(r.Context(), req, l, func(delta string) error {
+		return send(map[string]string{"delta": delta})
+	})
+	if err != nil {
+		_ = send(map[string]string{"error": err.Error()})
+		return
+	}
+	_ = send(map[string]any{"done": true, "reply": reply})
 }
 
 type Server struct {

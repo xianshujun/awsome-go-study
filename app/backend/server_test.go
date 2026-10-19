@@ -339,3 +339,52 @@ func TestQuitEndpoint(t *testing.T) {
 		t.Fatalf("重复退出应保持成功，得到 %d", rec.Code)
 	}
 }
+
+func TestAIChatStreamAndLastRun(t *testing.T) {
+	var streamSeen atomic.Bool
+	var lastRunSeen atomic.Bool
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Stream   bool          `json:"stream"`
+			Messages []ChatMessage `json:"messages"`
+		}
+		if json.NewDecoder(r.Body).Decode(&payload) != nil {
+			t.Error("bad stream payload")
+		}
+		streamSeen.Store(payload.Stream)
+		if len(payload.Messages) > 1 {
+			context := payload.Messages[1].Content
+			lastRunSeen.Store(strings.Contains(context, "lastRun") && strings.Contains(context, "panic: boom"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"先看\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"边界\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer ai.Close()
+	e := testEngine(t, t.TempDir())
+	if w := callAPI(t, e, "/api/settings", map[string]string{"baseUrl": ai.URL, "model": "test-model"}); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	w := callAPI(t, e, "/api/chat", map[string]any{
+		"message": "帮我看报错",
+		"stream":  true,
+		"lastRun": map[string]any{"error": "panic: boom", "passed": false},
+	})
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "text/event-stream") {
+		t.Fatal(contentType)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"delta":"先看"`) || !strings.Contains(body, `"delta":"边界"`) || !strings.Contains(body, `"done":true`) || !strings.Contains(body, `"reply":"先看边界"`) {
+		t.Fatal(body)
+	}
+	if !streamSeen.Load() {
+		t.Fatal("provider did not receive stream=true")
+	}
+	if !lastRunSeen.Load() {
+		t.Fatal("provider did not receive last run context")
+	}
+}

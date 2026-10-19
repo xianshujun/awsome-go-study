@@ -39,6 +39,13 @@
         "Println 方便调试，Printf 负责格式化，Sprintf 只返回字符串。",
         "%s、%d、%t、%.2f、%v 覆盖大多数日常输出场景。",
         "宽度与精度可以写进占位符，做对齐的表格很方便。"
+      ],
+      "checks": [
+        {
+          "kind": "stringLiteral",
+          "name": "%.2f",
+          "hint": "金额和单价都要保留两位小数。"
+        }
       ]
     },
     {
@@ -72,6 +79,18 @@
         "字符串不可变，所有操作都要接住返回值。",
         "查找判断用 Contains、HasPrefix、HasSuffix、Count。",
         "批量清洗用 Split + TrimSpace + Join 的组合套路。"
+      ],
+      "checks": [
+        {
+          "kind": "call",
+          "name": "strings.TrimSpace",
+          "hint": "先去掉每个片段首尾的空格。"
+        },
+        {
+          "kind": "call",
+          "name": "strings.ToLower",
+          "hint": "标签统一转成小写。"
+        }
       ]
     },
     {
@@ -105,6 +124,18 @@
         "Atoi/Itoa 负责 int 与字符串互转，ParseBool/FormatBool 负责布尔值。",
         "转换失败用第二个返回值表达，可预期的错误不要用 panic 处理。",
         "输入先 TrimSpace，转换后先判错，再参与业务计算。"
+      ],
+      "checks": [
+        {
+          "kind": "call",
+          "name": "strings.TrimSpace",
+          "hint": "Atoi 不认识空格，先 TrimSpace。"
+        },
+        {
+          "kind": "twoValueCall",
+          "name": "strconv.Atoi",
+          "hint": "要处理 Atoi 返回的错误，不能丢给 _。"
+        }
       ]
     },
     {
@@ -139,6 +170,20 @@
         "Floor 向下、Ceil 向上、Round 四舍五入到整数，方向别记反。",
         "Min/Max 可以组合成区间夹取；能用整数运算就别用浮点。",
         "时长换算（整除加取余）与 time.Duration 的整数纳秒思路一致。"
+      ],
+      "checks": [
+        {
+          "kind": "call",
+          "name": "math.Round"
+        },
+        {
+          "kind": "call",
+          "name": "math.Max"
+        },
+        {
+          "kind": "call",
+          "name": "math.Min"
+        }
       ]
     },
     {
@@ -172,6 +217,18 @@
         "文本处理按「拆分 → 清洗 → 转换 → 汇总 → 输出」组织。",
         "结构校验要放在下标访问之前，转换错误不能忽略。",
         "浮点结果用 %.1f 之类的精度控制输出，避免整数除法截断。"
+      ],
+      "checks": [
+        {
+          "kind": "call",
+          "name": "strings.TrimSpace",
+          "hint": "姓名和分数都要先清洗空格。"
+        },
+        {
+          "kind": "twoValueCall",
+          "name": "strconv.Atoi",
+          "hint": "转换失败时要跳过坏行，而不是当成 0。"
+        }
       ]
     }
   ]

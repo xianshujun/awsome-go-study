@@ -126,3 +126,46 @@ func TestNoRunawayGoroutines(t *testing.T) {
 		t.Fatalf("runaway goroutines: before=%d after=%d", before, after)
 	}
 }
+
+func TestLessonChecks(t *testing.T) {
+	r := NewRunner(time.Second)
+	checks := []LessonCheck{{Kind: "call", Name: "close", Arg: "done", Hint: "要 close(done)"}}
+	good := `package main; import "fmt"; func main(){ done := make(chan struct{}); close(done); fmt.Println("ok") }`
+	result := r.Run(context.Background(), good, "ok", checks...)
+	if !result.Passed || len(result.Checks) != 1 || !result.Checks[0].Passed {
+		t.Fatalf("expected check to pass: %+v", result)
+	}
+	// 输出完全正确但没有真正关闭通道：不能算通过。
+	shortcut := `package main; import "fmt"; func main(){ fmt.Println("ok") }`
+	result = r.Run(context.Background(), shortcut, "ok", checks...)
+	if result.Passed || len(result.Checks) != 1 || result.Checks[0].Passed {
+		t.Fatalf("output-only shortcut must fail: %+v", result)
+	}
+	if result.Checks[0].Label == "" || result.Checks[0].Hint != "要 close(done)" {
+		t.Fatalf("missing check feedback: %+v", result.Checks[0])
+	}
+}
+
+func TestMemoryGuard(t *testing.T) {
+	r := NewRunner(time.Second)
+	for _, tt := range []struct {
+		name, code, fragment string
+	}{
+		{"slice", `package main; import "fmt"; func main(){ b := make([]byte, 1<<30); fmt.Println(len(b)) }`, "分配过大"},
+		{"slice cap", `package main; import "fmt"; func main(){ b := make([]byte, 0, 1<<30); fmt.Println(cap(b)) }`, "分配过大"},
+		{"computed", `package main; import "fmt"; func main(){ n := 1<<21; b := make([]byte, n); fmt.Println(len(b)) }`, "分配过大"},
+		{"channel", `package main; import "fmt"; func main(){ c := make(chan int, 1<<20); fmt.Println(cap(c)) }`, "分配过大"},
+		{"array type", `package main; var x [1<<30]byte; func main(){}`, "数组长度"},
+		{"huge shift", `package main; var x [1<<100]byte; func main(){}`, "数组长度"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.Run(context.Background(), tt.code, "")
+			if !strings.Contains(result.Error, tt.fragment) {
+				t.Fatalf("want %q, got %+v", tt.fragment, result)
+			}
+		})
+	}
+	if result := r.Run(context.Background(), `package main; import "fmt"; func main(){ b := make([]byte, 1024); fmt.Println(len(b)) }`, "1024"); !result.Passed {
+		t.Fatalf("normal allocation must pass: %+v", result)
+	}
+}

@@ -133,6 +133,9 @@ type contentInfo struct {
 	Pack    updateFile `json:"pack"`
 	Count   int        `json:"count"`
 	Notes   string     `json:"notes"`
+	// MinAppVersion 表示这份课程内容需要的最低程序版本；旧版程序应明确提示先更新程序，
+	// 而不是把新字段当成坏内容静默跳过。
+	MinAppVersion string `json:"minAppVersion,omitempty"`
 }
 
 type UpdateOffer struct {
@@ -404,7 +407,11 @@ func (e *Engine) checkUpdate(auto bool, prefer string) UpdateStatus {
 	_, contentErr := fetchManifest(e.updateClient, preferred(contentBases(), prefer), contentManifest, &content)
 	if contentErr == nil {
 		if applied := e.contentVersion(); content.Version != "" && content.Version != applied {
-			status.ContentUpdate = &ContentOffer{Version: content.Version, Size: content.Pack.Size, Notes: content.Notes, Current: applied}
+			if content.MinAppVersion != "" && versionNewer(content.MinAppVersion, Version) {
+				status.Warning = "课程内容需要更高版本的程序，请先更新程序"
+			} else {
+				status.ContentUpdate = &ContentOffer{Version: content.Version, Size: content.Pack.Size, Notes: content.Notes, Current: applied}
+			}
 		}
 	} else if status.Error == "" {
 		// 还没发过内容包时读不到不算故障，只留一句提示。

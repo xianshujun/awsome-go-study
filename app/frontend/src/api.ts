@@ -59,11 +59,20 @@ export interface Bootstrap {
   };
   conversations: ConversationList;
 }
+export interface CheckResult {
+  kind: string;
+  name?: string;
+  label: string;
+  hint?: string;
+  passed: boolean;
+}
 export interface RunResult {
   output: string;
   error?: string;
   passed: boolean;
   durationMs: number;
+  /** 输出之外的结构检查结果；课程没有配置检查时为空。 */
+  checks?: CheckResult[];
 }
 export interface Message {
   role: "user" | "assistant";
@@ -178,4 +187,94 @@ export function reportWindowClosed() {
   } catch {
     // 实在发不出去也没关系：引擎侧还留着别的收尾办法（比如用户从设置里退出）。
   }
+}
+
+export interface ChatBody {
+  lessonId: string;
+  code?: string;
+  message: string;
+  history?: { role: string; content: string }[];
+  /** 最近一次运行结果，让导师能直接看到报错。 */
+  lastRun?: { output?: string; error?: string; passed: boolean };
+}
+
+/**
+ * 向 AI 导师提问。优先走 SSE：服务端逐段返回，页面边收边显示；
+ * 服务端（或反向代理）返回普通 JSON 时自动退化成一次性回复，接口保持兼容。
+ */
+export async function chatStream(
+  body: ChatBody,
+  onDelta: (delta: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionStorage.getItem("gostudy-token") ?? ""}`,
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal,
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({ error: `请求失败 · ${response.status}` }));
+    throw new Error(result.error || `请求失败 · ${response.status}`);
+  }
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("text/event-stream") || !response.body) {
+    const result = (await response.json()) as { reply?: string; error?: string };
+    if (result.error) throw new Error(result.error);
+    if (!result.reply) throw new Error("AI 服务返回了无效回复");
+    onDelta(result.reply);
+    return result.reply;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let received = "";
+  let finalReply = "";
+  const handle = (data: string) => {
+    if (!data || data === "[DONE]") return;
+    let payload: { delta?: string; error?: string; done?: boolean; reply?: string };
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (payload.error) throw new Error(payload.error);
+    if (payload.delta) {
+      received += payload.delta;
+      onDelta(payload.delta);
+    }
+    if (payload.done && typeof payload.reply === "string") {
+      finalReply = payload.reply;
+    }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+      for (const event of events) {
+        for (const line of event.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          handle(line.slice(5).trim());
+        }
+      }
+    }
+    // 流末尾可能还剩下一个没有空行结尾的事件。
+    for (const line of buffer.split("\n")) {
+      if (line.startsWith("data:")) handle(line.slice(5).trim());
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => undefined);
+    throw err;
+  } finally {
+    reader.releaseLock();
+  }
+  if (finalReply) return finalReply;
+  if (!received.trim()) throw new Error("AI 服务没有返回内容");
+  return received;
 }

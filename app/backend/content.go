@@ -94,6 +94,9 @@ func (e *Engine) applyContent(prefer string) (string, error) {
 	if manifest.Version == "" {
 		return "", errors.New("课程内容清单缺少版本号")
 	}
+	if manifest.MinAppVersion != "" && versionNewer(manifest.MinAppVersion, Version) {
+		return "", errors.New("课程内容需要更新的程序版本，请先更新 GoStudy")
+	}
 	if manifest.Version == e.contentVersion() {
 		return manifest.Version, nil
 	}

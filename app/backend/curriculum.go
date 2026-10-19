@@ -241,6 +241,23 @@ func validateLesson(l Lesson) error {
 	if len(l.Takeaways) < 3 {
 		return fmt.Errorf("至少需要 3 条要点回顾")
 	}
+	if len(l.Checks) > 8 {
+		return fmt.Errorf("结构检查最多 8 条")
+	}
+	for _, check := range l.Checks {
+		if !checkKinds[check.Kind] {
+			return fmt.Errorf("未知的结构检查类型: %s", check.Kind)
+		}
+		if checkNeedsName(check.Kind) && strings.TrimSpace(check.Name) == "" {
+			return fmt.Errorf("结构检查 %s 缺少 name", check.Kind)
+		}
+		if len(check.Name) > 64 || len(check.Arg) > 64 || len(check.Hint) > 200 {
+			return fmt.Errorf("结构检查字段过长")
+		}
+		if check.Min < 0 || check.Min > 20 {
+			return fmt.Errorf("结构检查 min 需在 0 到 20 之间")
+		}
+	}
 	q := l.Quiz
 	if strings.TrimSpace(q.Question) == "" || strings.TrimSpace(q.Explanation) == "" {
 		return fmt.Errorf("理解题的问题与解析不能为空")

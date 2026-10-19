@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { api } from "./api";
+import { api, chatStream } from "./api";
 import type {
   ConversationList,
   ConversationPayload,
   ConversationSummary,
   Message,
+  RunResult,
 } from "./api";
 
 /** 与服务端校验保持一致：单条消息最多 4096 字节。 */
@@ -26,7 +27,7 @@ export function boundedText(text: string, bytes: number) {
   return result;
 }
 
-export type TutorContext = { lessonId: string; code?: string };
+export type TutorContext = { lessonId: string; code?: string; lastRun?: RunResult };
 
 /**
  * AI 导师的对话状态。放在 App 层而不是面板里：
@@ -37,6 +38,8 @@ export function useTutor() {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  /** 流式回复的临时正文；收到 done 后由正式消息替换。 */
+  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
@@ -172,6 +175,7 @@ export function useTutor() {
         .map((item) => ({ role: item.role, content: boundedText(item.content, HISTORY_BYTES) }));
       const controller = new AbortController();
       abort.current = controller;
+      setDraft("");
       if (options.record) setMessages((current) => [...current, { role: "user", content: text }]);
       try {
         let id = activeId;
@@ -187,22 +191,30 @@ export function useTutor() {
           );
           applySaved(saved);
         }
-        const response = await api<{ reply: string }>(
-          "chat",
+        const reply = await chatStream(
           {
             lessonId: context.lessonId,
             code: context.code ?? "",
             message: boundedText(text, MESSAGE_BYTES),
             history,
+            lastRun: context.lastRun
+              ? {
+                  output: boundedText(context.lastRun.output ?? "", 16 * 1024),
+                  error: boundedText(context.lastRun.error ?? "", 4096),
+                  passed: context.lastRun.passed,
+                }
+              : undefined,
           },
+          (delta) => setDraft((current) => current + delta),
           controller.signal,
         );
-        setMessages((current) => [...current, { role: "assistant", content: response.reply }]);
+        setDraft("");
+        setMessages((current) => [...current, { role: "assistant", content: reply }]);
         try {
           applySaved(
             await api<ConversationPayload>(
               "conversations",
-              { action: "append", id, role: "assistant", content: response.reply },
+              { action: "append", id, role: "assistant", content: reply },
               controller.signal,
             ),
           );
@@ -210,6 +222,7 @@ export function useTutor() {
           if ((err as Error).name !== "AbortError") setError("回复已收到，但没能写进本机对话记录。");
         }
       } catch (err) {
+        setDraft("");
         if ((err as Error).name !== "AbortError") setError((err as Error).message);
       } finally {
         setSending(false);
@@ -218,6 +231,11 @@ export function useTutor() {
     },
     [activeId, applySaved, create, messages, sending],
   );
+
+  /** 用户主动停止：中止当前请求，已经收到的半段回复不再写进记录。 */
+  const cancel = useCallback(() => {
+    abort.current?.abort();
+  }, []);
 
   const send = useCallback(
     (text: string, context: TutorContext) => ask(text, context, { record: true }),
@@ -245,10 +263,12 @@ export function useTutor() {
     activeId,
     active: items.find((item) => item.id === activeId),
     messages,
+    draft,
     sending,
     opening,
     error,
     send,
+    cancel,
     retry,
     create,
     open,

@@ -16,21 +16,38 @@ type Quiz struct {
 	Answer      int      `json:"answer"`
 	Explanation string   `json:"explanation"`
 }
+
+// LessonCheck 是输出匹配之外的结构检查：不要求学习者写出与参考解一模一样的代码，
+// 但要求真正用上这一课要练的语言构造（例如 close、两值接收、指针接收者）。
+type LessonCheck struct {
+	// Kind 是检查类型，见 runner.go 的 checkKinds。
+	Kind string `json:"kind"`
+	// Name 是函数名、变量名或类型名，含义由 Kind 决定。
+	Name string `json:"name,omitempty"`
+	// Arg 用于进一步限定参数，例如 close(done) 里的 done。
+	Arg string `json:"arg,omitempty"`
+	// Min 是至少出现几次，默认 1；用于「三条日志都要用 rid」这类检查。
+	Min int `json:"min,omitempty"`
+	// Hint 是没通过时给学习者看的一句话。
+	Hint string `json:"hint,omitempty"`
+}
+
 type Lesson struct {
-	ID             string   `json:"id"`
-	CourseID       string   `json:"courseId"`
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	Duration       int      `json:"duration"`
-	Concept        string   `json:"concept"`
-	Example        string   `json:"example"`
-	Starter        string   `json:"starter"`
-	Task           string   `json:"task"`
-	ExpectedOutput string   `json:"expectedOutput"`
-	Hints          []string `json:"hints"`
-	Quiz           Quiz     `json:"quiz"`
-	Takeaways      []string `json:"takeaways"`
-	Source         string   `json:"source"`
+	ID             string        `json:"id"`
+	CourseID       string        `json:"courseId"`
+	Title          string        `json:"title"`
+	Description    string        `json:"description"`
+	Duration       int           `json:"duration"`
+	Concept        string        `json:"concept"`
+	Example        string        `json:"example"`
+	Starter        string        `json:"starter"`
+	Task           string        `json:"task"`
+	ExpectedOutput string        `json:"expectedOutput"`
+	Hints          []string      `json:"hints"`
+	Quiz           Quiz          `json:"quiz"`
+	Takeaways      []string      `json:"takeaways"`
+	Source         string        `json:"source"`
+	Checks         []LessonCheck `json:"checks,omitempty"`
 }
 type Progress struct {
 	Completed  []string          `json:"completed"`
