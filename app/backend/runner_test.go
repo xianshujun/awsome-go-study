@@ -157,6 +157,7 @@ func TestMemoryGuard(t *testing.T) {
 		{"channel", `package main; import "fmt"; func main(){ c := make(chan int, 1<<20); fmt.Println(cap(c)) }`, "分配过大"},
 		{"array type", `package main; var x [1<<30]byte; func main(){}`, "数组长度"},
 		{"huge shift", `package main; var x [1<<100]byte; func main(){}`, "数组长度"},
+		{"named constant", `package main; const N = 1 << 30; var x [N]byte; func main(){}`, "数组长度"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			result := r.Run(context.Background(), tt.code, "")

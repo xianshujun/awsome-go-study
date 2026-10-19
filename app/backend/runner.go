@@ -542,8 +542,41 @@ func allocGuard(expr ast.Expr, limit int) ast.Expr {
 	}
 }
 
-func constValue(expr ast.Expr) (constant.Value, bool) {
+// collectConstants 收集包级常量，让 [N]byte 这种写法也能在解析期判断大小。
+// 只处理显式赋值的常量；iota、隐式重复值等算不出来就跳过，运行期的 make 检查仍然有效。
+func collectConstants(file *ast.File) map[string]constant.Value {
+	env := map[string]constant.Value{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			values, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range values.Names {
+				if i >= len(values.Values) {
+					continue
+				}
+				if value, ok := constValueWith(env, values.Values[i]); ok {
+					env[name.Name] = value
+				}
+			}
+		}
+	}
+	return env
+}
+
+func constValueWith(env map[string]constant.Value, expr ast.Expr) (constant.Value, bool) {
 	switch x := expr.(type) {
+	case *ast.Ident:
+		if env != nil {
+			value, ok := env[x.Name]
+			return value, ok
+		}
+		return nil, false
 	case *ast.BasicLit:
 		if x.Kind != token.INT {
 			return nil, false
@@ -554,9 +587,9 @@ func constValue(expr ast.Expr) (constant.Value, bool) {
 		}
 		return value, true
 	case *ast.ParenExpr:
-		return constValue(x.X)
+		return constValueWith(env, x.X)
 	case *ast.UnaryExpr:
-		value, ok := constValue(x.X)
+		value, ok := constValueWith(env, x.X)
 		if !ok {
 			return nil, false
 		}
@@ -567,11 +600,11 @@ func constValue(expr ast.Expr) (constant.Value, bool) {
 			return constant.UnaryOp(x.Op, value, 0), true
 		}
 	case *ast.BinaryExpr:
-		left, ok := constValue(x.X)
+		left, ok := constValueWith(env, x.X)
 		if !ok {
 			return nil, false
 		}
-		right, ok := constValue(x.Y)
+		right, ok := constValueWith(env, x.Y)
 		if !ok {
 			return nil, false
 		}
@@ -596,8 +629,8 @@ func constValue(expr ast.Expr) (constant.Value, bool) {
 	return nil, false
 }
 
-func intLiteral(expr ast.Expr) (int64, bool) {
-	value, ok := constValue(expr)
+func intLiteral(expr ast.Expr, env map[string]constant.Value) (int64, bool) {
+	value, ok := constValueWith(env, expr)
 	if !ok || value.Kind() != constant.Int {
 		return 0, false
 	}
@@ -612,13 +645,14 @@ func intLiteral(expr ast.Expr) (int64, bool) {
 // guardAllocations 在解释执行前加上内存兜底：
 // make 的 len/cap 在运行时检查，超大数组类型在解析阶段直接拒绝。
 func guardAllocations(file *ast.File) error {
+	constants := collectConstants(file)
 	var failure error
 	ast.Inspect(file, func(n ast.Node) bool {
 		if failure != nil {
 			return false
 		}
 		if array, ok := n.(*ast.ArrayType); ok && array.Len != nil {
-			if size, exact := intLiteral(array.Len); exact && size > maxMakeElements {
+			if size, exact := intLiteral(array.Len, constants); exact && size > maxMakeElements {
 				failure = fmt.Errorf("数组长度不能超过 %d", maxMakeElements)
 				return false
 			}
