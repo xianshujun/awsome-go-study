@@ -121,13 +121,15 @@ export interface UpdateStatus {
   error?: string;
   warning?: string;
 }
-export type DownloadStage = "idle" | "downloading" | "verifying" | "ready" | "failed";
+export type DownloadStage = "idle" | "downloading" | "verifying" | "ready" | "installing" | "failed";
 export interface DownloadState {
   state: DownloadStage;
   received: number;
   total: number;
   asset?: string;
   error?: string;
+  /** 这次下载的是程序、安装包还是课程内容。 */
+  kind?: "app" | "installer" | "content";
   /** 拿到包之后该做什么：桌面重启、Android 交给系统安装器。 */
   mode?: "restart" | "android" | "content" | "installer";
 }

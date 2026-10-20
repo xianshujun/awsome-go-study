@@ -72,6 +72,8 @@ let updateStatus: Record<string, unknown>;
 let updateProgress: Record<string, unknown>;
 let updateRequests: UpdateBody[];
 let progressCalls: number;
+let installFails: boolean;
+let installStarted: boolean;
 
 /** 更新接口的最小实现：检查、下载、安装各返回一个可断言的状态。 */
 function updatesAPI(body: RequestBody): unknown {
@@ -80,15 +82,27 @@ function updatesAPI(body: RequestBody): unknown {
     case 'check':
       return { ...updateStatus, skipped: false, checked: 1000 };
     case 'download':
-      updateProgress = { state: 'downloading', received: 1024, total: 4096, asset: 'GoStudy-linux-amd64' };
+      updateProgress = { state: 'downloading', received: 1024, total: 4096, asset: 'GoStudy-linux-amd64', kind: 'app' };
       return updateProgress;
     case 'progress':
+      if (installFails && installStarted) {
+        progressCalls++;
+        updateProgress = progressCalls > 2
+          ? { state: 'failed', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart', kind: 'app', error: '安装包启动失败' }
+          : { state: 'installing', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart', kind: 'app' };
+        return updateProgress;
+      }
       // 轮询一次之后就当作下载完，模拟"下好并校验通过"。
       if (++progressCalls > 1) {
-        updateProgress = { state: 'ready', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart' };
+        updateProgress = { state: 'ready', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart', kind: 'app' };
       }
       return updateProgress;
     case 'install':
+      installStarted = true;
+      if (installFails) {
+        updateProgress = { state: 'installing', received: 4096, total: 4096, asset: 'GoStudy-linux-amd64', mode: 'restart', kind: 'app' };
+        return updateProgress;
+      }
       return { ...updateProgress, state: 'ready', mode: 'restart' };
     case 'content':
       return { version: 'content-2', content: 'content-2', warning: '' };
@@ -236,6 +250,8 @@ beforeEach(() => {
   clock = 1000;
   updateRequests = [];
   progressCalls = 0;
+  installFails = false;
+  installStarted = false;
   updateProgress = { state: 'idle', received: 0, total: 0 };
   updateStatus = { current: '0.7.0', content: '' };
   sessionStorage.setItem('gostudy-token', 'test-session-token');
@@ -585,6 +601,23 @@ describe('学习空间的关键交互', () => {
     // 轮询把状态推进到"已就绪"，再点一次就发起安装
     await user.click(await screen.findByRole('button', { name: '立即重启并更新' }, { timeout: 3000 }));
     expect(updateRequests.some(request => request.action === 'install')).toBe(true);
+  });
+
+  it('安装阶段失败会显示错误，而不是停在"更新包已就绪"', async () => {
+    installFails = true;
+    updateStatus = {
+      current: '0.7.0', content: '', checked: 1000,
+      app: { version: '0.8.0', released: '2026-10-20', notes: '安装失败复现', size: 12582912, asset: 'GoStudy-linux-amd64' },
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: '偏好与 AI 设置' }));
+    await user.click(await screen.findByRole('button', { name: /下载并安装 0.8.0/ }));
+    await user.click(await screen.findByRole('button', { name: '立即重启并更新' }, { timeout: 3000 }));
+
+    // install 先返回 installing，随后轮询拿到 failed；错误必须回到界面上。
+    expect(await screen.findByText('安装包启动失败', {}, { timeout: 3000 })).toBeVisible();
+    expect(screen.queryByText('更新包已就绪')).not.toBeInTheDocument();
   });
 
   it('关掉自动检查后不再自动联网，手动检查仍然可用', async () => {

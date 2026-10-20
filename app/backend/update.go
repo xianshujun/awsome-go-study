@@ -498,6 +498,9 @@ func (e *Engine) installUpdate() (downloadState, error) {
 	if e.platform != "windows" && e.platform != "linux" {
 		return current, errors.New("当前平台请在发布页手动下载")
 	}
+	// 先把状态改成 installing 再返回：真正的替换/启动在后台协程里，
+	// 前端必须继续轮询，才能看到下载安装包、启动安装器和失败原因。
+	e.downloads.set(func(s *downloadState) { s.State = "installing" })
 	go func() {
 		// 留出时间把响应发出去，再替换文件并退出。
 		time.Sleep(400 * time.Millisecond)
@@ -507,7 +510,7 @@ func (e *Engine) installUpdate() (downloadState, error) {
 		}
 		e.requestQuit()
 	}()
-	return current, nil
+	return e.downloads.snapshot(), nil
 }
 
 /*
@@ -528,9 +531,6 @@ func (e *Engine) applyUpdate() error {
 	switch installStrategy(executable) {
 	case "installer":
 		// 安装版交给安装包升级，快捷方式、卸载信息与显示版本都跟着走。
-		if e.platform == "windows" {
-			closeAppWindows(e.host)
-		}
 		return e.runInstaller()
 	case "manual":
 		return errors.New("没有权限替换程序文件，请到发布页手动下载新版本")
@@ -554,13 +554,15 @@ func (e *Engine) applyUpdate() error {
 		_ = os.Remove(staged)
 		return errors.New("替换程序文件失败，已还原")
 	}
-	if e.platform == "windows" {
-		// 先把旧的应用窗口关掉，否则会留下一个指向已经退出引擎的空白页。
-		closeAppWindows(e.host)
-	}
 	command := exec.Command(executable, relaunchArgs(os.Args[1:], old)...)
 	command.Dir = dir
-	startDetached(command)
+	if err := startDetached(command); err != nil {
+		return errors.New("新版本已就位，但启动失败；请重新打开 GoStudy")
+	}
+	if e.platform == "windows" {
+		// 新进程已经起来，再关旧窗口；启动失败时窗口还留着，错误才看得见。
+		closeAppWindows(e.host)
+	}
 	return nil
 }
 
@@ -593,25 +595,25 @@ func writableDir(dir string) bool {
 
 // runInstaller 下载并用发布清单里的安装包静默升级；需要管理员权限时弹一次 UAC。
 func (e *Engine) runInstaller() error {
-	setup := filepath.Join(e.updatesDir(), setupAssetName)
-	if _, err := os.Stat(setup); err != nil {
-		if err := e.fetchInstaller(); err != nil {
-			return err
-		}
-	}
-	arguments := []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"}
-	var command *exec.Cmd
 	if e.platform != "windows" {
 		return errors.New("当前平台请在发布页手动下载")
 	}
-	if writableDir(filepath.Dir(setup)) {
-		command = exec.Command(setup, arguments...)
-	} else {
+	setup := filepath.Join(e.updatesDir(), setupAssetName)
+	// 每次都重新取当前发布里的安装包：updates 目录可能留着上一版下载的 Setup，
+	// 直接复用会重新安装旧版本。
+	if err := e.fetchInstaller(); err != nil {
+		return err
+	}
+	arguments := []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"}
+	if !writableDir(filepath.Dir(setup)) {
 		return errors.New("安装包无法运行，请到发布页手动下载")
 	}
+	command := exec.Command(setup, arguments...)
+	// 安装包先跑起来，再关旧窗口：启动失败时应用还在，错误能显示给用户。
 	if err := startDetached(command); err != nil {
 		return errors.New("无法启动安装包，请到发布页手动下载")
 	}
+	closeAppWindows(e.host)
 	return nil
 }
 
@@ -627,16 +629,29 @@ func (e *Engine) fetchInstaller() error {
 		return errors.New("发布清单里没有安装包")
 	}
 	e.downloads.set(func(s *downloadState) {
-		*s = downloadState{State: "downloading", Total: file.Size, Asset: setupAssetName}
+		*s = downloadState{
+			State: "downloading", Total: file.Size, Asset: setupAssetName,
+			Mode: "installer", Kind: kindInstaller,
+		}
 	})
-	err = fetchTo(e.updateClient, base+"/"+setupAssetName, filepath.Join(e.updatesDir(), setupAssetName), file, func(received int64) {
+	setupPath := filepath.Join(e.updatesDir(), setupAssetName)
+	err = fetchTo(e.updateClient, base+"/"+setupAssetName, setupPath, file, func(received int64) {
 		e.downloads.set(func(s *downloadState) { s.Received = received })
 	})
 	if err != nil {
 		e.downloads.set(func(s *downloadState) { s.State = "failed"; s.Error = err.Error() })
 		return err
 	}
-	e.downloads.set(func(s *downloadState) { s.State = "ready"; s.Mode = "installer" })
+	// 下载落盘默认没有可执行位；Windows 不看这个，但测试与将来可能的 Unix 安装器需要。
+	_ = os.Chmod(setupPath, 0700)
+	// 安装包已经下好，接下来是启动安装器；保持 installing，界面不要再给一次“立即更新”按钮。
+	e.downloads.set(func(s *downloadState) {
+		s.State = "installing"
+		s.Received = file.Size
+		s.Total = file.Size
+		s.Mode = "installer"
+		s.Kind = kindInstaller
+	})
 	return nil
 }
 

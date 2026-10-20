@@ -78,4 +78,5 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 ; 以原始用户身份启动：选「为所有用户安装」时安装程序是提权的，直接启动会变成管理员身份，
 ; 那样应用会把进度写进管理员账户的 %AppData%。
-Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; 不要加 skipifsilent：应用内更新用 /VERYSILENT 静默升级，装完必须由这里把新版本拉起来。
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall runasoriginaluser

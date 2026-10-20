@@ -126,6 +126,7 @@ export function useUpdater({
 
   const install = useCallback(async () => {
     setError("");
+    setApplying("app");
     try {
       const state = await api<DownloadState>("update", { action: "install" });
       setDownload(state);
@@ -135,12 +136,20 @@ export function useUpdater({
       }
     } catch (err) {
       setError((err as Error).message);
+      setApplying("");
     }
   }, []);
 
-  // 下载中和校验中时轮询进度；ready / failed 之后停下来。
+  // 下载、校验和安装中都要轮询：安装器还要再下 6 MB 的 Setup，
+  // 后台失败也必须回到界面上，不能停在“更新包已就绪”。
   useEffect(() => {
-    if (download.state !== "downloading" && download.state !== "verifying") return;
+    if (
+      download.state !== "downloading" &&
+      download.state !== "verifying" &&
+      download.state !== "installing"
+    ) {
+      return;
+    }
     let alive = true;
     const timer = window.setInterval(async () => {
       try {
@@ -148,7 +157,7 @@ export function useUpdater({
         if (!alive) return;
         setDownload(state);
         if (state.state === "failed") {
-          setError(state.error || "下载失败，请重试");
+          setError(state.error || "更新失败，请重试");
           setApplying("");
         }
         if (state.state === "ready") setApplying("");

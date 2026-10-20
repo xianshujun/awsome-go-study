@@ -2577,8 +2577,10 @@ function UpdateCard({
   const { status, checking, download, error, applying } = updater;
   const current = status?.current || runtime.version || "dev";
   const content = status?.content || runtime.content || "";
-  const busy = download.state === "downloading" || download.state === "verifying";
+  const transferring = download.state === "downloading" || download.state === "verifying";
+  const installing = download.state === "installing";
   const ready = download.state === "ready";
+  const locked = transferring || installing;
   const percent = download.total > 0 ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
   const app = status?.app;
   const contentUpdate = status?.contentUpdate;
@@ -2606,7 +2608,7 @@ function UpdateCard({
             {status?.checked ? `上次检查：${relativeTime(status.checked)}` : "还没有检查过"}
           </span>
         </div>
-        <button className="button secondary" onClick={() => void updater.check(true)} disabled={checking || busy}>
+        <button className="button secondary" onClick={() => void updater.check(true)} disabled={checking || locked}>
           {checking ? "正在检查…" : "检查更新"}
         </button>
       </div>
@@ -2628,7 +2630,7 @@ function UpdateCard({
         </div>
       </div>
 
-      {app && !busy && !ready && (
+      {app && !locked && !ready && (
         <div className="update-box">
           <div className="update-box-head">
             <strong>
@@ -2654,10 +2656,16 @@ function UpdateCard({
         </div>
       )}
 
-      {busy && (
+      {transferring && (
         <div className="update-box">
           <div className="update-box-head">
-            <strong>{download.state === "verifying" ? "正在校验更新包…" : `正在下载 ${download.asset ?? ""}`}</strong>
+            <strong>
+              {download.state === "verifying"
+                ? "正在校验更新包…"
+                : download.kind === "installer"
+                  ? "正在下载安装程序…"
+                  : `正在下载 ${download.asset ?? ""}`}
+            </strong>
             <span>
               {readableSize(download.received)}
               {download.total ? ` / ${readableSize(download.total)}` : ""}
@@ -2666,6 +2674,20 @@ function UpdateCard({
           <Meter.Root className="meter update-meter" value={percent} max={100} aria-label="下载进度">
             <div className="meter-fill" style={{ width: `${percent}%` }} />
           </Meter.Root>
+        </div>
+      )}
+
+      {installing && (
+        <div className="update-box">
+          <div className="update-box-head">
+            <strong>{download.kind === "installer" ? "正在启动安装程序…" : "正在重启并更新…"}</strong>
+            <span>{download.asset ?? ""}</span>
+          </div>
+          <p className="update-hint">
+            {download.kind === "installer"
+              ? "应用会关闭，安装完成后会自动重新打开新版本；如果系统询问权限，请点「是」。"
+              : "应用会自动替换并重启，学习进度和对话都在，不受影响。"}
+          </p>
         </div>
       )}
 
@@ -2679,7 +2701,7 @@ function UpdateCard({
             {download.mode === "android"
               ? "点下面的按钮后，系统会问一次是否允许安装；装完重新打开就是新版本。"
               : download.mode === "installer"
-                ? "安装版会静默升级并保留你的设置，可能需要你在系统弹窗里点一次「是」。"
+                ? "安装版会静默升级，安装完成后自动重新打开新版本；可能需要你在系统弹窗里点一次「是」。"
                 : "点下面的按钮后应用会自动替换并重启，学习进度和对话都在，不受影响。"}
           </p>
           <div className="update-actions">
@@ -2690,7 +2712,7 @@ function UpdateCard({
         </div>
       )}
 
-      {applying === "app" && !ready && !busy && !error && (
+      {applying === "app" && !ready && !locked && !error && (
         <p className="update-hint">正在准备更新…</p>
       )}
 
@@ -2712,7 +2734,7 @@ function UpdateCard({
         </div>
       )}
 
-      {!app && !contentUpdate && !busy && !ready && !checking && !status?.error && (
+      {!app && !contentUpdate && !locked && !ready && !checking && !status?.error && (
         <p className="update-hint">
           当前已经是最新的版本{content ? `，课程内容是 ${content}` : ""}。
         </p>

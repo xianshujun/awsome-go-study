@@ -508,6 +508,93 @@ func mustReadAsset(t *testing.T, name string) []byte {
 	return data
 }
 
+// 点击“立即重启并更新”后必须先把状态切到 installing，让前端继续轮询；
+// 替换失败时要落到 failed，而不是让界面停在“更新包已就绪”。
+func TestInstallUpdateReportsInstallingThenFailure(t *testing.T) {
+	e := testEngine(t, t.TempDir())
+	e.downloads.set(func(s *downloadState) {
+		*s = downloadState{State: "ready", Kind: kindApp, Mode: "restart", Asset: assetName("linux")}
+	})
+	state, err := e.installUpdate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != "installing" {
+		t.Fatalf("安装开始后状态应当是 installing，实际 %+v", state)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var final downloadState
+	for time.Now().Before(deadline) {
+		final = e.downloads.snapshot()
+		if final.State == "failed" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if final.State != "failed" || !strings.Contains(final.Error, "更新包不在了") {
+		t.Fatalf("安装失败应当写回 failed：%+v", final)
+	}
+	if waitQuit(e, 200*time.Millisecond) {
+		t.Fatal("安装失败时不应该退出进程，否则用户看不到错误")
+	}
+}
+
+// 安装版每次都要重新下载当前发布里的 Setup；updates 目录里上一版留下的安装包不能复用。
+func TestInstallerFetchesFreshSetupAndReportsInstalling(t *testing.T) {
+	server := newReleaseServer(t)
+	marker := filepath.Join(t.TempDir(), "setup-ran.txt")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + marker + "'\n"
+	payload := []byte(script)
+	server.files[setupAssetName] = payload
+	manifest := releaseManifest{
+		Version: "9.9.9",
+		Files: map[string]updateFile{
+			setupAssetName: {Size: int64(len(payload)), SHA256: digestOf(payload)},
+		},
+	}
+	encoded, _ := json.Marshal(manifest)
+	server.files[latestManifest] = encoded
+
+	e, err := New(Options{DataDir: t.TempDir(), Platform: "windows"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(e.aiClient.CloseIdleConnections)
+	t.Setenv("GOSTUDY_UPDATE_BASES", server.URL)
+
+	if err := os.MkdirAll(e.updatesDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(e.updatesDir(), setupAssetName)
+	if err := os.WriteFile(stale, []byte("#!/bin/sh\nexit 7\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.runInstaller(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	args, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("安装包没有被启动：%v", err)
+	}
+	for _, want := range []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"} {
+		if !strings.Contains(string(args), want) {
+			t.Fatalf("安装参数缺少 %s：%s", want, args)
+		}
+	}
+	state := e.downloads.snapshot()
+	if state.State != "installing" || state.Kind != kindInstaller {
+		t.Fatalf("安装器启动后状态应当是 installing/installer：%+v", state)
+	}
+}
+
 func TestRelaunchArgs(t *testing.T) {
 	got := relaunchArgs([]string{"-no-browser", "-addr", "127.0.0.1:7731", "-data-dir", "/tmp/x", "-diagnose"}, "/tmp/GoStudy.exe.old")
 	want := []string{"-cleanup", "/tmp/GoStudy.exe.old", "-no-browser", "-data-dir", "/tmp/x"}
