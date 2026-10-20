@@ -33,6 +33,9 @@ type state struct {
 	// 单独一份预算（见 conversations.go）比塞进 Progress 更好控制。
 	Conversations      []conversation `json:"conversations,omitempty"`
 	ActiveConversation string         `json:"activeConversation,omitempty"`
+	// 事故演练的成绩与最近一场，和课程进度分开存：它们的生命周期不同，
+	// 单独修剪也更容易控制状态文件大小。
+	Lab LabProgress `json:"lab,omitempty"`
 }
 type store struct {
 	mu    sync.Mutex
@@ -87,6 +90,7 @@ func newStore(dir string) (*store, error) {
 	}
 	// 用户手工编辑过、或被旧版本写大的对话记录，装载时先压回预算之内。
 	s.value.Conversations = trimConversations(s.value.Conversations)
+	s.value.Lab = normalizeLabProgress(s.value.Lab)
 	if findChat(&s.value, s.value.ActiveConversation) < 0 {
 		s.value.ActiveConversation = ""
 	}
@@ -124,6 +128,7 @@ func cloneState(v state) state {
 		chats = append(chats, c)
 	}
 	v.Conversations = chats
+	v.Lab = cloneLabProgress(v.Lab)
 	return v
 }
 func (s *store) snapshot() state { s.mu.Lock(); defer s.mu.Unlock(); return cloneState(s.value) }

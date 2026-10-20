@@ -25,7 +25,11 @@ NOTES=''
 NOTES_FILE=''
 RELEASED="$(date -u +%F)"
 CONTENT_SOURCE="$APP_DIR/backend/courses"
+LABS_SOURCE="$APP_DIR/backend/labs/labs.json"
 MIN_APP_VERSION=''
+# 事故演练场景改变了内容包结构（多了 labs.json），必须告诉旧程序"先升级"。
+# 版本号写在文件里，改包结构时同步改这一处即可。
+MIN_APP_FILE="$APP_DIR/backend/labs/min-app-version"
 
 usage() {
     printf '%s\n' \
@@ -38,6 +42,7 @@ usage() {
         '  --notes-file 文件          从文件读更新说明（与 --notes 二选一）' \
         '  --released YYYY-MM-DD      发布日期，默认今天' \
         '  --content-dir 目录         课程目录，默认 app/backend/courses' \
+        '  --labs-file 文件           事故演练场景，默认 app/backend/labs/labs.json' \
         '  --min-app-version X.Y.Z    课程内容要求的最低程序版本（可选）' \
         '  --content-only             只生成课程内容包，不生成 update.json（只改课程内容时用）'
 }
@@ -51,6 +56,7 @@ while [[ $# -gt 0 ]]; do
         --notes-file) [[ $# -ge 2 ]] || fail '--notes-file 需要一个值'; NOTES_FILE="$2"; shift 2 ;;
         --released) [[ $# -ge 2 ]] || fail '--released 需要一个值'; RELEASED="$2"; shift 2 ;;
         --content-dir) [[ $# -ge 2 ]] || fail '--content-dir 需要一个值'; CONTENT_SOURCE="$2"; shift 2 ;;
+        --labs-file) [[ $# -ge 2 ]] || fail '--labs-file 需要一个值'; LABS_SOURCE="$2"; shift 2 ;;
         --min-app-version) [[ $# -ge 2 ]] || fail '--min-app-version 需要一个值'; MIN_APP_VERSION="$2"; shift 2 ;;
         --content-only) CONTENT_ONLY='yes'; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -65,6 +71,12 @@ fi
 [[ -z "$OUT_DIR" ]] && OUT_DIR="${DIR:-.}"
 mkdir -p -- "$OUT_DIR"
 require_command python3
+
+# 没显式指定最低版本时，读 labs 旁边的版本文件：带 labs.json 的内容包
+# 需要能识别它的程序，否则 v0.9.0 及更早版本会把 labs.json 当成坏课程文件。
+if [[ -z "$MIN_APP_VERSION" && -f "$MIN_APP_FILE" ]]; then
+    MIN_APP_VERSION="$(tr -d '[:space:]' < "$MIN_APP_FILE")"
+fi
 
 if [[ -n "$NOTES_FILE" ]]; then
     [[ -f "$NOTES_FILE" ]] || fail "找不到说明文件：$NOTES_FILE"
@@ -109,44 +121,55 @@ for name, info in files.items():
 PY
 fi
 
-# 课程内容包：把 courses/*.json 打成一个 zip，版本号取内容的哈希。
-CONTENT_DIR="$CONTENT_SOURCE" OUT_DIR="$OUT_DIR" MIN_APP_VERSION="$MIN_APP_VERSION" python3 - <<'PY'
+# 内容包：courses/*.json + labs.json。版本号取所有文件的内容哈希，
+# 算法必须与 backend/content.go 的 contentSignature 完全一致。
+CONTENT_DIR="$CONTENT_SOURCE" LABS_FILE="$LABS_SOURCE" OUT_DIR="$OUT_DIR" MIN_APP_VERSION="$MIN_APP_VERSION" python3 - <<'PY'
 import hashlib, json, os, pathlib, zipfile
 
 content_dir = pathlib.Path(os.environ["CONTENT_DIR"])
+labs_file = pathlib.Path(os.environ["LABS_FILE"])
 out_dir = pathlib.Path(os.environ["OUT_DIR"])
 names = sorted(path for path in content_dir.glob("*.json"))
 if not names:
     raise SystemExit(f"课程目录里没有 JSON：{content_dir}")
+if not labs_file.is_file():
+    raise SystemExit(f"找不到事故演练场景：{labs_file}")
+
+entries = [(path.name, path.read_bytes()) for path in names]
+entries.append(("labs.json", labs_file.read_bytes()))
+entries.sort(key=lambda item: item[0])
 
 signature = hashlib.sha256()
-for path in names:
-    signature.update(path.name.encode("utf-8") + b"\0")
-    signature.update(path.read_bytes() + b"\0")
+for name, data in entries:
+    signature.update(name.encode("utf-8") + b"\0")
+    signature.update(data + b"\0")
 version = signature.hexdigest()[:10]
 
 pack = out_dir / "content.zip"
-# 固定时间戳：同样的课程内容在 CI 与本机打出的包逐字节一致，便于核对与缓存。
+# 固定时间戳：同样的内容在 CI 与本机打出的包逐字节一致，便于核对与缓存。
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
 with zipfile.ZipFile(pack, "w", zipfile.ZIP_DEFLATED) as archive:
-    for path in names:
+    for name, data in entries:
         # 只放文件名，压缩包里不带层级，与服务端的结构校验一致。
-        entry = zipfile.ZipInfo(path.name, date_time=FIXED_TIME)
+        entry = zipfile.ZipInfo(name, date_time=FIXED_TIME)
         entry.compress_type = zipfile.ZIP_DEFLATED
         entry.external_attr = 0o600 << 16
-        archive.writestr(entry, path.read_bytes())
+        archive.writestr(entry, data)
 
+labs = json.loads(labs_file.read_text(encoding="utf-8"))
+scenario_count = len(labs.get("scenarios", []))
 data = pack.read_bytes()
 info = {
     "version": version,
     "file": "content.zip",
     "count": len(names),
+    "scenarios": scenario_count,
     "pack": {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()},
-    "notes": f"{len(names)} 门课程的内容包",
+    "notes": f"{len(names)} 门课程、{scenario_count} 个事故场景的内容包",
 }
 min_app = os.environ.get("MIN_APP_VERSION", "").strip()
 if min_app:
     info["minAppVersion"] = min_app
 (out_dir / "content.json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print(f"content.json：版本 {version}，{len(names)} 个课程文件，{len(data)} 字节")
+print(f"content.json：版本 {version}，{len(names)} 个课程文件、{scenario_count} 个事故场景，{len(data)} 字节")
 PY

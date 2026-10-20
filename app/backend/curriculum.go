@@ -92,6 +92,10 @@ func loadCurriculum(overrideDir string) ([]Course, []Lesson, []string, error) {
 		}
 		for _, full := range names {
 			base := filepath.Base(full)
+			// labs.json 是事故演练场景，不属于课程；交给 labEngine 单独加载。
+			if base == labPackFile {
+				continue
+			}
 			data, err := os.ReadFile(full)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s 读取失败", base))

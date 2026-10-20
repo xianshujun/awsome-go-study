@@ -55,6 +55,7 @@ type Engine struct {
 	store        *store
 	runner       *Runner
 	cur          atomic.Pointer[curriculum]
+	labs         *labEngine
 	mu           sync.Mutex
 	proofs       map[string]proof
 	nextRun      uint64
@@ -99,6 +100,10 @@ func New(opts Options, frontend http.Handler) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	labs, err := newLabEngine(filepath.Join(dataDir, contentDirName))
+	if err != nil {
+		return nil, fmt.Errorf("事故演练场景无法载入：%w", err)
+	}
 	platform := opts.Platform
 	if platform == "" {
 		platform = runtime.GOOS
@@ -115,6 +120,7 @@ func New(opts Options, frontend http.Handler) (*Engine, error) {
 		token:        hex.EncodeToString(secret),
 		store:        s,
 		runner:       NewRunner(opts.RunTimeout),
+		labs:         labs,
 		mu:           sync.Mutex{},
 		proofs:       map[string]proof{},
 		aiGate:       make(chan struct{}, 2),
@@ -153,6 +159,9 @@ func (e *Engine) reloadCurriculum() error {
 		return fmt.Errorf("课程内容无法载入：%w", err)
 	}
 	e.cur.Store(newCurriculum(courses, lessons, warnings))
+	if err := e.labs.reload(e.contentDir()); err != nil {
+		return fmt.Errorf("事故演练场景无法载入：%w", err)
+	}
 	return nil
 }
 
@@ -276,6 +285,10 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.handleConversations(w, r)
 	case "/api/update":
 		e.handleUpdate(w, r)
+	case "/api/lab":
+		e.handleLab(w, r)
+	case "/api/lab-chat":
+		e.handleLabChat(w, r)
 	case "/api/quit":
 		writeJSON(w, 200, map[string]string{"status": "stopping"})
 		e.requestQuit()

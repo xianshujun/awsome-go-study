@@ -132,6 +132,151 @@ export interface DownloadState {
   mode?: "restart" | "android" | "content" | "installer";
 }
 
+/* ---------------- 事故演练场 ---------------- */
+
+export interface LabResult {
+  caseId: string;
+  scenario: string;
+  date: string;
+  title: string;
+  passed: boolean;
+  best: number;
+  attempts: number;
+  hints: number;
+  updatedAt: number;
+}
+
+export interface LabProgress {
+  results?: Record<string, LabResult>;
+  lastCase?: string;
+  solved: number;
+  attempts: number;
+}
+
+export interface LabCaseSummary {
+  id: string;
+  scenario: string;
+  scenarioId: string;
+  date: string;
+  title: string;
+  subtitle?: string;
+  level: string;
+  minutes: number;
+  tags: string[];
+  alert?: string;
+  /** 今日事故 / 历史存档 / 场景库 */
+  mode: string;
+  solved: boolean;
+  best?: number;
+  attempts?: number;
+  hints?: number;
+  isToday?: boolean;
+}
+
+export interface LabBootstrap {
+  company: string;
+  tagline: string;
+  today: LabCaseSummary;
+  archive: LabCaseSummary[];
+  catalog: LabCaseSummary[];
+  progress: LabProgress;
+  modelReady: boolean;
+  scenarioCount: number;
+  packVersion: number;
+  warnings?: string[];
+}
+
+export interface LabService {
+  name: string;
+  role: string;
+  status: "healthy" | "degraded" | "critical";
+  replicas?: string;
+  cpu?: string;
+  memory?: string;
+  note?: string;
+}
+
+export interface LabMetric {
+  service: string;
+  name: string;
+  unit?: string;
+  alert?: number;
+  points: number[];
+}
+
+export interface LabOption {
+  label: string;
+  detail?: string;
+}
+
+export interface LabCase {
+  id: string;
+  scenario: string;
+  company: string;
+  date: string;
+  clock: string;
+  title: string;
+  subtitle?: string;
+  brief: string;
+  mission: string;
+  business?: string;
+  level: string;
+  minutes: number;
+  tags: string[];
+  alerts: string[];
+  timeline?: string[];
+  services: LabService[];
+  metrics: LabMetric[];
+  presets: string[];
+  rootCauses: LabOption[];
+  fixes: LabOption[];
+  hints: string[];
+  hintCount: number;
+  result?: LabResult;
+  history?: { command: string }[];
+}
+
+export interface LabRunResult {
+  command: string;
+  output: string;
+  at: number;
+}
+
+export interface LabSubmitResult {
+  passed: boolean;
+  score: number;
+  best: number;
+  rootCauseCorrect: boolean;
+  fixCorrect: boolean;
+  correctRootCause: number;
+  correctFix: number;
+  evidenceHit: number;
+  evidenceTotal: number;
+  hints: number;
+  message: string;
+  debrief: string;
+  result: LabResult;
+  progress: LabProgress;
+}
+
+export interface LabHintResult {
+  hint: string;
+  index: number;
+  hintsUsed: number;
+  total: number;
+}
+
+export interface LabChatStep {
+  tool: string;
+  args?: string;
+  summary?: string;
+}
+
+export interface LabChatResponse {
+  reply: string;
+  steps?: LabChatStep[];
+}
+
 const incomingToken = new URLSearchParams(window.location.hash.slice(1)).get(
   "token",
 );

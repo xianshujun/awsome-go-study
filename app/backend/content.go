@@ -23,8 +23,8 @@ import (
 const (
 	contentDirName      = "content"
 	updatesDirName      = "updates"
-	maxContentFileBytes = 256 << 10
-	maxContentPackBytes = 4 << 20
+	maxContentFileBytes = 2 << 20
+	maxContentPackBytes = 8 << 20
 	maxContentFiles     = 32
 	contentVersionFile  = "version"
 )
@@ -53,13 +53,18 @@ func (e *Engine) contentVersion() string {
 	if err != nil {
 		return ""
 	}
-	bundled := make(map[string][]byte, len(files))
+	// 内置课程 + 内置事故场景一起算哈希：内容包里的 labs.json 也会改变版本号，
+	// 这样"只更新了每日事故"同样能被应用发现。
+	bundled := make(map[string][]byte, len(files)+1)
 	for _, file := range files {
 		data, err := curriculumFS.ReadFile("courses/" + file.source)
 		if err != nil {
 			continue
 		}
 		bundled[file.source] = data
+	}
+	if data, err := labFS.ReadFile("labs/" + labPackFile); err == nil {
+		bundled[labPackFile] = data
 	}
 	return contentSignature(bundled)
 }
@@ -131,12 +136,25 @@ func (e *Engine) installContentPack(packPath string, manifest contentInfo) error
 		return err
 	}
 	// 先按"内置课程 + 这批文件"组装一遍：坏内容包不能把应用的学习内容弄没了。
-	merged, err := mergedCourseFiles(files)
+	// labs.json 不是课程文件，单独校验，不能交给 assembleCurriculum。
+	courseFiles := make(map[string][]byte, len(files))
+	for name, data := range files {
+		if name == labPackFile {
+			continue
+		}
+		courseFiles[name] = data
+	}
+	merged, err := mergedCourseFiles(courseFiles)
 	if err != nil {
 		return fmt.Errorf("课程内容校验失败：%w", err)
 	}
 	if _, _, err := assembleCurriculum(merged); err != nil {
 		return fmt.Errorf("课程内容校验失败：%w", err)
+	}
+	if data, ok := files[labPackFile]; ok {
+		if _, err := parseLabPack(data); err != nil {
+			return fmt.Errorf("事故场景校验失败：%w", err)
+		}
 	}
 
 	staging := e.contentDir() + ".new"
@@ -150,6 +168,16 @@ func (e *Engine) installContentPack(packPath string, manifest contentInfo) error
 		if err := os.WriteFile(filepath.Join(staging, name), data, 0600); err != nil {
 			_ = os.RemoveAll(staging)
 			return errors.New("无法保存课程内容")
+		}
+	}
+	// 只发课程、不带 labs.json 的内容包不应把上一份事故场景删掉：
+	// 场景与课程是两个发布节奏，缺省时保留磁盘上已有的那一份。
+	if _, ok := files[labPackFile]; !ok {
+		if data, err := os.ReadFile(filepath.Join(e.contentDir(), labPackFile)); err == nil {
+			if err := os.WriteFile(filepath.Join(staging, labPackFile), data, 0600); err != nil {
+				_ = os.RemoveAll(staging)
+				return errors.New("无法保留已有的事故场景")
+			}
 		}
 	}
 	if err := os.WriteFile(filepath.Join(staging, contentVersionFile), []byte(manifest.Version), 0600); err != nil {

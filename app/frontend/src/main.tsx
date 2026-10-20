@@ -51,6 +51,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Siren,
   Sprout,
   Square,
   SquarePen,
@@ -95,15 +96,17 @@ import type { AssistantWindow } from "./prefs";
 import { boundedText, MESSAGE_BYTES, useTutor } from "./tutor";
 import { useUpdater } from "./updater";
 import type { Updater } from "./updater";
+import { LabPage } from "./lab";
 import "./styles.css";
 
-type View = "home" | "courses" | "learn" | "notes" | "settings";
+type View = "home" | "courses" | "learn" | "lab" | "notes" | "settings";
 type RouteState = { view: View; lessonId?: string };
 const icons = [Sprout, Layers3, Code2, Flag];
 const editorExtensions = [go(), ...editorTheme];
 const navigation: { id: View; label: string; icon: typeof Compass }[] = [
   { id: "home", label: "学习空间", icon: Compass },
   { id: "courses", label: "探索课程", icon: BookOpen },
+  { id: "lab", label: "事故演练", icon: Siren },
   { id: "notes", label: "我的笔记", icon: FileText },
 ];
 
@@ -749,6 +752,16 @@ function Shell({
             onNotify={onNotify}
             motionOn={motionOn}
           />
+        )}
+        {view === "lab" && (
+          <motion.div className="lab-view" key="lab" {...viewEnter(motionOn)}>
+            <LabPage
+              settings={data.settings}
+              motionOn={motionOn}
+              onOpenSettings={() => onNavigate("settings")}
+              onNotify={onNotify}
+            />
+          </motion.div>
         )}
         {view === "notes" && (
           <motion.div className="notes-page" key="notes" {...viewEnter(motionOn)}>

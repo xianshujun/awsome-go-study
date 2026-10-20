@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './main';
-import type { Bootstrap, Conversation, ConversationSummary, Lesson, Progress, RunResult, Settings } from './api';
+import type { Bootstrap, Conversation, ConversationSummary, LabBootstrap, LabCase, LabSubmitResult, Lesson, Progress, RunResult, Settings } from './api';
 
 // 使用同一 onChange 契约，测试用户编辑而不是 CodeMirror 的布局细节。
 vi.mock('@uiw/react-codemirror', () => ({
@@ -49,6 +49,7 @@ type RequestBody = {
   history?: { role: string; content: string }[];
   stream?: boolean;
   lastRun?: { output?: string; error?: string; passed: boolean };
+  scenario?: string; date?: string; caseId?: string; command?: string; rootCause?: number; fix?: number;
 };
 type RecordedRequest = { path: string; body?: RequestBody; authorization: string | null };
 type StoredChat = { id: string; title: string; lessonId: string; updatedAt: number; messages: { role: 'user' | 'assistant'; content: string; at: number }[] };
@@ -93,6 +94,77 @@ function updatesAPI(body: RequestBody): unknown {
       return { version: 'content-2', content: 'content-2', warning: '' };
     default:
       return { error: '未知的更新操作' };
+  }
+}
+
+const labToday = {
+  id: 'kafka-timeout-20261020', scenario: 'kafka-timeout', scenarioId: 'kafka-timeout',
+  date: '2026-10-20', title: '订单卡了 30 分钟：Kafka acks=all 等不到 ISR',
+  level: '高级', minutes: 35, tags: ['Kafka', 'ISR'], alert: '[P1] lag 1.2M',
+  mode: '今日事故', solved: false, isToday: true,
+} satisfies LabBootstrap['today'];
+
+const labView: LabCase = {
+  id: labToday.id, scenario: labToday.scenario, company: '橙点商城', date: labToday.date,
+  clock: '2026-10-20 11:30', title: labToday.title, subtitle: 'ISR 收缩',
+  brief: '订单事件延迟三十分钟。', mission: '定位根因并给出处置。', level: '高级', minutes: 35,
+  tags: ['Kafka'], alerts: ['[P1] order-worker lag 1.2M'],
+  services: [
+    { name: 'order-api', role: '订单服务', status: 'degraded', replicas: '6/6', cpu: '55%', memory: '1.6Gi', note: '事件发布超时' },
+    { name: 'kafka', role: '消息队列', status: 'critical', replicas: '3/3', cpu: '46%', memory: '4.2Gi', note: 'ISR 收缩' },
+    { name: 'mysql', role: '订单库', status: 'healthy', replicas: '1/1', cpu: '34%', memory: '3.6Gi' },
+  ],
+  metrics: [
+    { service: 'kafka', name: 'Under-replicated 分区', unit: '个', alert: 0, points: [0, 2, 8, 48] },
+    { service: 'order-worker', name: '消费 lag', unit: '条', alert: 10000, points: [1200, 28000, 640000, 1200000] },
+  ],
+  presets: ['services', 'trace --slow'],
+  rootCauses: [
+    { label: '消费逻辑太慢' },
+    { label: 'broker-2 磁盘 IO 饱和，ISR 收缩后 acks=all 无法写入' },
+    { label: '订单库写入慢' },
+    { label: '分区数太少' },
+  ],
+  fixes: [
+    { label: '把 acks 改成 1' },
+    { label: '恢复 broker-2 磁盘并让 ISR 回到 2 以上，同时控制 producer 重试' },
+    { label: '重启 Kafka' },
+    { label: '扩容消费者' },
+  ],
+  hints: [], hintCount: 3,
+};
+
+const labSubmit: LabSubmitResult = {
+  passed: true, score: 85, best: 85, rootCauseCorrect: true, fixCorrect: true,
+  correctRootCause: 1, correctFix: 1, evidenceHit: 3, evidenceTotal: 6, hints: 0,
+  message: '方向对了，处置也正确。', debrief: '这是一次典型的 ISR 收缩。',
+  result: {
+    caseId: labView.id, scenario: labView.scenario, date: labView.date, title: labView.title,
+    passed: true, best: 85, attempts: 1, hints: 0, updatedAt: 1,
+  },
+  progress: { solved: 1, attempts: 1, results: {} },
+};
+
+function labAPI(body: RequestBody): unknown {
+  switch (body.action) {
+    case 'bootstrap':
+      return {
+        company: '橙点商城', tagline: '每天一场事故。', today: labToday,
+        archive: [], catalog: [labToday], progress: { solved: 0, attempts: 0 },
+        modelReady: false, scenarioCount: 8, packVersion: 1,
+      } satisfies LabBootstrap;
+    case 'case':
+      return labView;
+    case 'run':
+      return { command: body.command ?? '', output: 'Trace ORD202610200001 总耗时 30120 ms', at: 1 };
+    case 'submit':
+      return labSubmit;
+    case 'hint':
+      return { hint: '先看 ISR', index: 0, hintsUsed: 1, total: 3 };
+    case 'reset':
+      return { status: 'reset' };
+    default:
+      return { error: '未知的演练操作' };
   }
 }
 
@@ -205,6 +277,8 @@ beforeEach(() => {
     if (path.startsWith('window-closed')) return json({ status: 'noted' });
     if (path === 'chat') return json({ reply: '连接成功，可以开始学习。' });
     if (path === 'update' && body) return json(updatesAPI(body));
+    if (path === 'lab' && body) return json(labAPI(body));
+    if (path === 'lab-chat') return json({ reply: '先看日志。' });
     throw new Error(`未预期的请求：${path}`);
   });
 });
@@ -654,6 +728,26 @@ describe('学习空间的关键交互', () => {
     const chat = requests.find(request => request.path === 'chat' && request.body?.message === '为什么运行失败？');
     expect(chat?.body?.stream).toBe(true);
     expect(chat?.body?.lastRun).toMatchObject({ error: 'boom', passed: false });
+  });
+
+  it('事故演练：能打开现场、执行排查命令并提交诊断', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /事故演练/ }));
+
+    expect(await screen.findByRole('heading', { name: '线上事故演练场' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: labView.title })).toBeVisible();
+    expect(screen.getByText('正在告警')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '先看最慢链路' }));
+    expect(await screen.findByText(/Trace ORD202610200001/)).toBeVisible();
+
+    const selects = screen.getAllByRole('combobox');
+    await user.selectOptions(selects[0], '1');
+    await user.selectOptions(selects[1], '1');
+    await user.click(screen.getByRole('button', { name: '提交诊断' }));
+    expect(await screen.findByText('这次排查通过')).toBeVisible();
+    expect(requests.some(request => request.path === 'lab' && request.body?.action === 'submit')).toBe(true);
   });
 
   it('关窗口时用 sendBeacon 报信，带不出 request 头的老浏览器退回 fetch', async () => {

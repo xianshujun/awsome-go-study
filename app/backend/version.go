@@ -9,7 +9,7 @@ import (
 /*
 Version 由构建脚本用 -ldflags 注入：
 
-	-X github.com/xianshujun/awsome-go-study/app/backend/Version=0.9.0
+	-X github.com/xianshujun/awsome-go-study/app/backend/Version=0.10.0
 
 源码里直接 go run 时是 dev，更新检查会跳过程序本身的比较（内容更新仍然可用）。
 */
