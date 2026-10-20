@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import CodeMirror from "@uiw/react-codemirror";
 import { go } from "@codemirror/lang-go";
+import { EditorView } from "@codemirror/view";
 import ReactMarkdown from "react-markdown";
 import {
   AnimatePresence,
@@ -101,14 +102,40 @@ import "./styles.css";
 
 type View = "home" | "courses" | "learn" | "lab" | "notes" | "settings";
 type RouteState = { view: View; lessonId?: string };
+type ViewportMode = "small" | "medium" | "wide";
 const icons = [Sprout, Layers3, Code2, Flag];
-const editorExtensions = [go(), ...editorTheme];
-const navigation: { id: View; label: string; icon: typeof Compass }[] = [
-  { id: "home", label: "学习空间", icon: Compass },
-  { id: "courses", label: "探索课程", icon: BookOpen },
-  { id: "lab", label: "事故演练", icon: Siren },
-  { id: "notes", label: "我的笔记", icon: FileText },
+const editorExtensions = [go(), ...editorTheme, EditorView.lineWrapping];
+const navigation: { id: View; label: string; short: string; icon: typeof Compass }[] = [
+  { id: "home", label: "学习空间", short: "学习", icon: Compass },
+  { id: "courses", label: "探索课程", short: "课程", icon: BookOpen },
+  { id: "lab", label: "事故演练", short: "演练", icon: Siren },
+  { id: "notes", label: "我的笔记", short: "笔记", icon: FileText },
 ];
+
+/**
+ * 三档布局：宽屏用左侧栏，平板保留顶部导航，手机用底部 Tab。
+ * 用 JS 读宽度而不是只靠 CSS，是为了避免同一批导航按钮在 DOM 里出现两次
+ * ——辅助技术、测试的 getByRole 都会把隐藏元素算进去。
+ */
+function useViewportMode(): ViewportMode {
+  const read = (): ViewportMode => {
+    if (typeof window === "undefined") return "medium";
+    if (window.innerWidth >= 1100) return "wide";
+    if (window.innerWidth <= 859) return "small";
+    return "medium";
+  };
+  const [mode, setMode] = useState<ViewportMode>(read);
+  useEffect(() => {
+    const update = () => setMode(read());
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+  return mode;
+}
 
 /**
  * 首页演示台用的示例：全部取自仓库课程里的真实片段，输出也真的是解释器的结果。
@@ -449,6 +476,7 @@ function Shell({
   onPrefs: (patch: { reduceMotion?: boolean | null; editorSize?: number; autoUpdate?: boolean }) => void;
 }) {
   const motionOn = useMotionEnabled();
+  const mode = useViewportMode();
   const [tutorSpace, setTutorSpace] = useState(0);
   const completed = data.progress.completed || [];
   const percent = Math.round((completed.length / data.lessons.length) * 100) || 0;
@@ -469,82 +497,136 @@ function Shell({
     if (motionOn && source) withViewTransition(() => onOpenLesson(id), source);
     else onOpenLesson(id);
   };
+  const currentLabel =
+    view === "learn"
+      ? currentCourse.title
+      : view === "settings"
+        ? "偏好与 AI 设置"
+        : navigation.find((item) => item.id === view)?.label ?? "GoStudy";
+  const settingsTrigger = (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          className="icon-button settings-link"
+          aria-label="偏好与 AI 设置"
+          title={updater.hasApp || updater.hasContent ? "有新版本可以更新" : "偏好与 AI 设置"}
+          onClick={() => onNavigate("settings")}
+        >
+          <Settings2 size={19} />
+          {(updater.hasApp || updater.hasContent) && (
+            <span className="update-dot" aria-hidden="true" />
+          )}
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content className="tooltip" sideOffset={8}>
+          偏好与 AI 设置
+          <Tooltip.Arrow className="tooltip-arrow" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+  const renderNavItems = (itemClass: string) =>
+    navigation.map(({ id, label, icon: Icon }) => (
+      <button
+        key={id}
+        className={`${itemClass} ${view === id ? "active" : ""}`}
+        aria-current={view === id ? "page" : undefined}
+        onClick={() => onNavigate(id)}
+      >
+        {view === id && (
+          <motion.span className="nav-pill" layoutId="nav-pill" transition={springControl} />
+        )}
+        <Icon size={itemClass === "rail-item" ? 18 : 16} strokeWidth={2} />
+        <span>{label}</span>
+        {id === "notes" && <span className="nav-count">{notesCount}</span>}
+      </button>
+    ));
 
   return (
     <div
-      className="app"
+      className={`app mode-${mode}`}
       style={{ "--tutor-space": assistantOpen ? `${tutorSpace}px` : "0px" } as CSSProperties}
     >
-      <header className="topbar">
-        <span className="topbar-edge" aria-hidden="true" />
-        <div className="topbar-inner">
-          <button className="brand" aria-label="GoStudy 首页" onClick={() => onNavigate("home")}>
+      {mode === "wide" && (
+        <aside className="app-rail">
+          <button className="rail-brand" aria-label="GoStudy 首页" onClick={() => onNavigate("home")}>
             <Logo />
-            <span>GoStudy</span>
+            <span>
+              <strong>GoStudy</strong>
+              <small>本地 Go 学习</small>
+            </span>
           </button>
-          <nav className="main-nav" aria-label="主导航">
-            {navigation.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                className={`nav-item ${view === id ? "active" : ""}`}
-                onClick={() => onNavigate(id)}
-              >
-                {view === id && (
-                  <motion.span className="nav-pill" layoutId="nav-pill" transition={springControl} />
-                )}
-                <Icon size={16} strokeWidth={2} />
-                {label}
-                {id === "notes" && <span className="nav-count">{notesCount}</span>}
-              </button>
-            ))}
+          <nav className="rail-nav" aria-label="主导航">
+            {renderNavItems("rail-item")}
           </nav>
-          <div className="topbar-actions">
+          <div className="rail-foot">
             <span className="offline-badge">
               <WifiOff size={13} />
               离线可用
             </span>
-            <button
-              className="assistant-trigger"
-              onClick={() => onAssistant(true)}
-            >
-              <MessagesSquare size={15} />
-              AI 导师
-            </button>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  className="icon-button settings-link"
-                  aria-label="偏好与 AI 设置"
-                  title={updater.hasApp || updater.hasContent ? "有新版本可以更新" : "偏好与 AI 设置"}
-                  onClick={() => onNavigate("settings")}
-                >
-                  <Settings2 size={19} />
-                  {(updater.hasApp || updater.hasContent) && (
-                    <span className="update-dot" aria-hidden="true" />
-                  )}
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip" sideOffset={8}>
-                  偏好与 AI 设置
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-            <div className="profile-avatar" title="本地学习者">
-              G
+            {settingsTrigger}
+            <div className="rail-profile">
+              <div className="profile-avatar" title="本地学习者">
+                G
+              </div>
+              <div>
+                <strong>本地学习者</strong>
+                <span>没有账号 · 数据在本机</span>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
-      <main className="page">
+        </aside>
+      )}
+      <div className="app-body">
+        <header className="topbar">
+          <span className="topbar-edge" aria-hidden="true" />
+          <div className="topbar-inner">
+            {mode !== "wide" && (
+              <button className="brand" aria-label="GoStudy 首页" onClick={() => onNavigate("home")}>
+                <Logo />
+                <span>GoStudy</span>
+              </button>
+            )}
+            {mode === "wide" && (
+              <div className="topbar-context">
+                <span className="eyebrow">GoStudy</span>
+                <strong>{currentLabel}</strong>
+              </div>
+            )}
+            {mode === "medium" && (
+              <nav className="main-nav" aria-label="主导航">
+                {renderNavItems("nav-item")}
+              </nav>
+            )}
+            <div className="topbar-actions">
+              {mode !== "wide" && (
+                <span className="offline-badge">
+                  <WifiOff size={13} />
+                  离线可用
+                </span>
+              )}
+              <button className="assistant-trigger" aria-label="AI 导师" onClick={() => onAssistant(true)}>
+                <MessagesSquare size={15} />
+                <span>AI 导师</span>
+              </button>
+              {mode !== "wide" && settingsTrigger}
+              {mode !== "wide" && (
+                <div className="profile-avatar" title="本地学习者">
+                  G
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+        <main className="page">
         {view === "home" && (
           <motion.div className="home" key="home" {...viewEnter(motionOn)}>
             <section className="hero">
               <div className="hero-text">
                 <span className="pill">
                   <span className="pill-dot" />
-                  {data.runtime.engine} · 就绪
+                  本地运行 · 就绪
                 </span>
                 <h1>
                   {completed.length ? (
@@ -606,11 +688,9 @@ function Shell({
                   按自己的顺序学
                 </span>
               </StatCard>
-              <StatCard label="练习引擎" icon={Terminal} index={2} motionOn={motionOn}>
-                <strong className="stat-value stat-phrase">{data.runtime.engine}</strong>
-                <span className="stat-detail">
-                  {data.runtime.platform} · 不开放文件与网络访问
-                </span>
+              <StatCard label="学习方式" icon={ShieldCheck} index={2} motionOn={motionOn}>
+                <strong className="stat-value stat-phrase">本地优先</strong>
+                <span className="stat-detail">断网也能学 · 代码与进度都不上传</span>
               </StatCard>
             </section>
             <section className="section">
@@ -667,75 +747,13 @@ function Shell({
           </motion.div>
         )}
         {view === "courses" && (
-          <motion.div className="courses-page" key="courses" {...viewEnter(motionOn)}>
-            <PageHeading
-              label="全部课程"
-              title="按章节浏览，也可以直接挑一节开跑。"
-              description="课程按依赖顺序排好了，进度自动保存在本机，随时可以跳着学。"
-            />
-            <div className="catalog">
-              {data.courses.map((course, index) => {
-                const Icon = icons[index % icons.length];
-                const done = course.lessonIds.filter((id) => completed.includes(id)).length;
-                return (
-                  <motion.section
-                    className="catalog-course"
-                    key={course.id}
-                    {...rise(motionOn, index)}
-                  >
-                    <div className="catalog-heading">
-                      <div className="course-icon">
-                        <Icon size={24} />
-                      </div>
-                      <div>
-                        <span className="eyebrow">
-                          {String(index + 1).padStart(2, "0")} · {course.level}
-                        </span>
-                        <h2>{course.title}</h2>
-                        <p>{course.description}</p>
-                      </div>
-                      <span className="catalog-progress">
-                        {done} / {course.lessonIds.length} 已完成
-                      </span>
-                    </div>
-                    <div className="lesson-list">
-                      {course.lessonIds.map((id, i) => {
-                        const lesson = data.lessons.find((item) => item.id === id)!;
-                        return (
-                          <motion.button
-                            key={id}
-                            className="lesson-row"
-                            onClick={() => onOpenLesson(id)}
-                            {...fadeIn(motionOn, i)}
-                          >
-                            <span
-                              className={`lesson-number ${completed.includes(id) ? "done" : ""}`}
-                            >
-                              {completed.includes(id) ? (
-                                <Check size={15} />
-                              ) : (
-                                String(i + 1).padStart(2, "0")
-                              )}
-                            </span>
-                            <div>
-                              <strong>{lesson.title}</strong>
-                              <span>{lesson.description}</span>
-                            </div>
-                            <span className="lesson-time">
-                              <Clock3 size={13} />
-                              {lesson.duration} 分钟
-                            </span>
-                            <ArrowRight size={16} className="row-arrow" />
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-                  </motion.section>
-                );
-              })}
-            </div>
-            <Footer />
-          </motion.div>
+          <CoursesPage
+            data={data}
+            mode={mode}
+            onOpenLesson={onOpenLesson}
+            onAssistant={() => onAssistant(true)}
+            motionOn={motionOn}
+          />
         )}
         {view === "learn" && (
           <LearningWorkspace
@@ -743,6 +761,7 @@ function Shell({
             lesson={currentLesson}
             course={currentCourse}
             data={data}
+            mode={mode}
             onCodeChange={onCodeChange}
             onRunResult={onRunResult}
             onProgress={onProgress}
@@ -785,6 +804,25 @@ function Shell({
           </motion.div>
         )}
       </main>
+      {mode === "small" && (
+        <nav className="mobile-tabbar" aria-label="主导航">
+          {navigation.map(({ id, label, short, icon: Icon }) => (
+            <button
+              key={id}
+              className={`tab-item ${view === id ? "active" : ""}`}
+              aria-label={label}
+              aria-current={view === id ? "page" : undefined}
+              onClick={() => onNavigate(id)}
+            >
+              <span className="tab-icon">
+                <Icon size={20} strokeWidth={1.9} />
+                {id === "notes" && notesCount > 0 && <span className="tab-badge">{notesCount}</span>}
+              </span>
+              <span>{short}</span>
+            </button>
+          ))}
+        </nav>
+      )}
       <AnimatePresence>
         {assistantOpen && (
           <Assistant
@@ -808,6 +846,7 @@ function Shell({
           />
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }
@@ -1010,6 +1049,17 @@ function HeroStage() {
           <span className="muted">{running ? "正在执行…" : "等待运行"}</span>
         )}
       </div>
+      <div className="stage-foot">
+        <span>
+          示例 {stage.index + 1} / {stageExamples.length}
+        </span>
+        <span className="stage-dots" aria-hidden="true">
+          {stageExamples.map((_, i) => (
+            <i key={i} className={i === stage.index ? "active" : ""} />
+          ))}
+        </span>
+        <span>取自真实课程</span>
+      </div>
     </div>
   );
 }
@@ -1071,7 +1121,11 @@ function CourseCard({
         <div className="course-icon">
           <Icon size={22} strokeWidth={1.9} />
         </div>
-        <span className="course-index">{String(index + 1).padStart(2, "0")}</span>
+        {done > 0 ? (
+          <ProgressRing value={(done / course.lessonIds.length) * 100} size={40} />
+        ) : (
+          <span className="course-index">{String(index + 1).padStart(2, "0")}</span>
+        )}
       </div>
       <span className="course-meta">
         {course.level} · {course.lessonIds.length} 节练习 · {course.duration}
@@ -1096,6 +1150,164 @@ function CourseCard({
   );
 }
 
+/* ---------------- 课程目录 ---------------- */
+
+function ProgressRing({ value, size = 44 }: { value: number; size?: number }) {
+  const safe = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <span
+      className="progress-ring"
+      style={{ "--ring-value": `${safe}%`, "--ring-size": `${size}px` } as CSSProperties}
+      aria-hidden="true"
+    >
+      <span>{safe}%</span>
+    </span>
+  );
+}
+
+function CoursesPage({
+  data,
+  mode,
+  onOpenLesson,
+  onAssistant,
+  motionOn,
+}: {
+  data: Bootstrap;
+  mode: ViewportMode;
+  onOpenLesson: (id: string) => void;
+  onAssistant: () => void;
+  motionOn: boolean;
+}) {
+  const completed = data.progress.completed || [];
+  const lastLesson = data.lessons.find((lesson) => lesson.id === data.progress.lastLesson);
+  const firstOpen = data.courses.find((course) =>
+    course.lessonIds.some((id) => !completed.includes(id)),
+  );
+  const [selected, setSelected] = useState(() => lastLesson?.courseId || firstOpen?.id || data.courses[0]?.id || "");
+  const course = data.courses.find((item) => item.id === selected) || data.courses[0];
+  const courseIndex = data.courses.findIndex((item) => item.id === course.id);
+  const Icon = icons[courseIndex % icons.length];
+  const done = course.lessonIds.filter((id) => completed.includes(id)).length;
+  const overall = Math.round((completed.length / data.lessons.length) * 100) || 0;
+  const next =
+    data.lessons.find(
+      (item) => item.id === data.progress.lastLesson && !completed.includes(item.id),
+    ) ||
+    data.lessons.find((item) => !completed.includes(item.id)) ||
+    data.lessons[0];
+  const nextCourse = data.courses.find((item) => item.id === next?.courseId);
+  const nextDone = completed.length >= data.lessons.length;
+
+  return (
+    <motion.div className="courses-page" key="courses" {...viewEnter(motionOn)}>
+      <PageHeading
+        label="全部课程"
+        title="按章节浏览，也可以直接挑一节开跑。"
+        description="课程按依赖顺序排好了，进度自动保存在本机，随时可以跳着学。"
+      />
+      {next && (
+        <motion.section className="continue-card" {...rise(motionOn, 0)}>
+          <div className="continue-copy">
+            <span className="eyebrow">{nextDone ? "全部完成" : "继续学习"}</span>
+            <h2>{next.title}</h2>
+            <p>
+              {nextCourse?.title} · 约 {next.duration} 分钟 · 进度 {overall}%
+            </p>
+            <div className="continue-actions">
+              <button className="button primary" onClick={() => onOpenLesson(next.id)}>
+                {nextDone ? "再跑一遍" : "继续这一课"}
+                <ArrowRight size={16} />
+              </button>
+              <button className="text-button" onClick={onAssistant}>
+                <MessagesSquare size={15} />
+                卡住问导师
+              </button>
+            </div>
+          </div>
+          <ProgressRing value={overall} size={78} />
+        </motion.section>
+      )}
+      <div className={`catalog-layout mode-${mode}`}>
+        <nav className="catalog-index" aria-label="课程列表">
+          {data.courses.map((item, index) => {
+            const itemDone = item.lessonIds.filter((id) => completed.includes(id)).length;
+            const itemPercent = Math.round((itemDone / item.lessonIds.length) * 100) || 0;
+            return (
+              <button
+                key={item.id}
+                className={`catalog-index-item ${item.id === course.id ? "active" : ""}`}
+                aria-current={item.id === course.id ? "true" : undefined}
+                onClick={() => setSelected(item.id)}
+              >
+                <span className="catalog-index-no">{String(index + 1).padStart(2, "0")}</span>
+                <span className="catalog-index-copy">
+                  <strong>{item.title}</strong>
+                  <span>
+                    {item.level} · {itemDone}/{item.lessonIds.length}
+                  </span>
+                </span>
+                <ProgressRing value={itemPercent} size={38} />
+              </button>
+            );
+          })}
+        </nav>
+        <motion.section
+          className="catalog-course catalog-detail"
+          key={course.id}
+          {...rise(motionOn, 1)}
+        >
+          <div className="catalog-heading">
+            <div className="course-icon">
+              <Icon size={24} />
+            </div>
+            <div>
+              <span className="eyebrow">
+                {String(courseIndex + 1).padStart(2, "0")} · {course.level}
+              </span>
+              <h2>{course.title}</h2>
+              <p>{course.description}</p>
+            </div>
+            <span className="catalog-progress">
+              {done} / {course.lessonIds.length} 已完成
+            </span>
+          </div>
+          <div className="lesson-list">
+            {course.lessonIds.map((id, i) => {
+              const lesson = data.lessons.find((item) => item.id === id)!;
+              return (
+                <motion.button
+                  key={id}
+                  className="lesson-row"
+                  onClick={() => onOpenLesson(id)}
+                  {...fadeIn(motionOn, i)}
+                >
+                  <span className={`lesson-number ${completed.includes(id) ? "done" : ""}`}>
+                    {completed.includes(id) ? (
+                      <Check size={15} />
+                    ) : (
+                      String(i + 1).padStart(2, "0")
+                    )}
+                  </span>
+                  <div>
+                    <strong>{lesson.title}</strong>
+                    <span>{lesson.description}</span>
+                  </div>
+                  <span className="lesson-time">
+                    <Clock3 size={13} />
+                    {lesson.duration} 分钟
+                  </span>
+                  <ArrowRight size={16} className="row-arrow" />
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.section>
+      </div>
+      <Footer />
+    </motion.div>
+  );
+}
+
 /* ---------------- 学习空间 ---------------- */
 
 const lessonTabs = [
@@ -1108,6 +1320,7 @@ function LearningWorkspace({
   lesson,
   course,
   data,
+  mode,
   onCodeChange,
   onRunResult,
   onProgress,
@@ -1120,6 +1333,7 @@ function LearningWorkspace({
   lesson: Lesson;
   course: Course;
   data: Bootstrap;
+  mode: ViewportMode;
   onCodeChange: (code: string) => void;
   onRunResult: (result?: RunResult) => void;
   onProgress: (p: Progress) => void;
@@ -1132,6 +1346,8 @@ function LearningWorkspace({
   const [code, setCode] = useState(data.progress.drafts?.[lesson.id] ?? lesson.starter);
   const [note, setNote] = useState(data.progress.notes?.[lesson.id] ?? "");
   const [tab, setTab] = useState<"concept" | "task" | "notes">("concept");
+  const [pane, setPane] = useState<"read" | "code">("read");
+  const editorRef = useRef<HTMLElement>(null);
   const [result, setResult] = useState<RunResult>();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -1259,8 +1475,28 @@ function LearningWorkspace({
   const done = data.progress.completed?.includes(lesson.id);
   const completedCount = data.progress.completed?.length ?? 0;
   const correct = answer !== undefined && answer === lesson.quiz.answer;
+  const showTab = (value: "concept" | "task" | "notes") => {
+    setTab(value);
+    setPane(value === "task" ? "code" : "read");
+    if (value === "task" && mode === "small") {
+      // 手机上"动手挑战"不该让人先滚过整篇讲解：切换后直接送到编辑器。
+      window.setTimeout(
+        () => editorRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }),
+        60,
+      );
+    }
+  };
+  const switchPane = (next: "read" | "code") => {
+    if (next === "code") {
+      showTab("task");
+      return;
+    }
+    setPane("read");
+    if (tab === "task") setTab("concept");
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 60);
+  };
   return (
-    <motion.div className="lesson-page" {...viewEnter(motionOn)}>
+    <motion.div className={`lesson-page pane-${pane}`} {...viewEnter(motionOn)}>
       <nav className="breadcrumb" aria-label="当前位置">
         <span className="crumb-icon">
           <Compass size={13} />
@@ -1316,9 +1552,10 @@ function LearningWorkspace({
             </div>
           </div>
           {lesson.source && (
-            <p className="lesson-source">
-              <BookOpen size={14} />
-              内容依据仓库资料：{lesson.source}
+            <p className="lesson-source" title={lesson.source}>
+              <BookOpen size={12} />
+              <span>课程来源</span>
+              <span className="lesson-source-path">{lesson.source}</span>
             </p>
           )}
         </div>
@@ -1330,9 +1567,29 @@ function LearningWorkspace({
           和导师一起想
         </button>
       </header>
+      {mode === "small" && (
+        <div className="mobile-pane-switch" role="group" aria-label="学习方式">
+          <button
+            className={pane === "read" ? "active" : ""}
+            aria-pressed={pane === "read"}
+            onClick={() => switchPane("read")}
+          >
+            <BookOpen size={15} />
+            读讲解
+          </button>
+          <button
+            className={pane === "code" ? "active" : ""}
+            aria-pressed={pane === "code"}
+            onClick={() => switchPane("code")}
+          >
+            <Code2 size={15} />
+            写代码
+          </button>
+        </div>
+      )}
       <div className="lesson-grid">
         <section className="lesson-card">
-          <Tabs.Root value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
+          <Tabs.Root value={tab} onValueChange={(value) => showTab(value as typeof tab)}>
             <Tabs.List className="tabs" aria-label="课程内容">
               {lessonTabs.map((item) => (
                 <Tabs.Trigger
@@ -1394,7 +1651,7 @@ function LearningWorkspace({
                     ))}
                   </ul>
                 </div>
-                <button className="button primary" onClick={() => setTab("task")}>
+                <button className="button primary" onClick={() => showTab("task")}>
                   我准备好了，开始挑战 <ArrowRight size={16} />
                 </button>
               </>
@@ -1540,6 +1797,7 @@ function LearningWorkspace({
         </section>
         <section
           className="editor-panel"
+          ref={editorRef}
           onKeyDown={(event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
               event.preventDefault();
@@ -1586,7 +1844,7 @@ function LearningWorkspace({
               setResult(undefined);
               onRunResult(undefined);
             }}
-            height="360px"
+            height={mode === "small" ? "280px" : "360px"}
             basicSetup={{ foldGutter: false, highlightActiveLine: true }}
             aria-label="Go 代码编辑器"
           />
@@ -1703,6 +1961,27 @@ function LearningWorkspace({
           </div>
         </section>
       </div>
+      {mode === "small" && pane === "code" && (
+        <div className="mobile-run-bar">
+          <span>
+            <span className="tiny-dot" />
+            {saved || "本地运行"}
+          </span>
+          <button
+            className="button primary"
+            disabled={running}
+            onClick={() => void run()}
+            title="Ctrl / Cmd + Enter"
+          >
+            {running ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : (
+              <Play size={14} fill="currentColor" />
+            )}
+            {running ? "运行中" : "运行代码"}
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -1801,7 +2080,9 @@ function Assistant({
   );
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
+    // 对话区自己滚到底；scrollIntoView 会把背后的整页一起滚走。
+    const log = bottom.current?.closest<HTMLElement>(".chat-messages");
+    if (log) log.scrollTop = log.scrollHeight;
   }, [tutor.messages, tutor.draft, tutor.sending, historyOpen]);
   useEffect(() => {
     const fit = () =>
@@ -2550,8 +2831,8 @@ function Preferences({
   updater: Updater;
   motionOn: boolean;
 }) {
-  const [baseUrl, setBaseUrl] = useState(settings.baseUrl || "https://api.openai.com/v1");
-  const [model, setModel] = useState(settings.model || "gpt-4o-mini");
+  const [baseUrl, setBaseUrl] = useState(settings.baseUrl || "https://api.deepseek.com/v1");
+  const [model, setModel] = useState(settings.model || "deepseek-flash");
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2606,7 +2887,7 @@ function Preferences({
           </div>
           <div>
             <h2>连接 AI 导师</h2>
-            <p>支持 OpenAI Chat Completions 兼容接口，包括兼容的本地模型服务。</p>
+            <p>默认使用 DeepSeek，也支持任意 OpenAI Chat Completions 兼容接口与本机模型。</p>
           </div>
           <span className={`status-pill ${modelReady(settings) ? "connected" : ""}`}>
             {modelReady(settings) ? "已配置" : "未配置"}
@@ -2620,13 +2901,13 @@ function Preferences({
         >
           <label>
             API 地址
-            <span>填写基础地址，例如 https://api.openai.com/v1；不要添加 /chat/completions。</span>
+            <span>填写基础地址，例如 https://api.deepseek.com/v1；不要添加 /chat/completions。</span>
             <input
               type="url"
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
               required
-              placeholder="https://api.openai.com/v1"
+              placeholder="https://api.deepseek.com/v1"
               spellCheck={false}
             />
           </label>
@@ -2638,7 +2919,7 @@ function Preferences({
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
                 required
-                placeholder="gpt-4o-mini"
+                placeholder="deepseek-flash"
                 spellCheck={false}
               />
             </label>

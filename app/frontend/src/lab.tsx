@@ -203,11 +203,14 @@ export function LabPage({
   }, [openSummary]);
 
   useEffect(() => {
-    terminalEnd.current?.scrollIntoView?.({ block: "nearest" });
+    // 只滚终端内部，别把整页带到页面底部（手机上打开演练会直接跳到指标区）。
+    const body = terminalEnd.current?.closest<HTMLElement>(".lab-terminal-body");
+    if (body) body.scrollTop = body.scrollHeight;
   }, [lines, running]);
 
   useEffect(() => {
-    chatEnd.current?.scrollIntoView?.({ block: "nearest" });
+    const log = chatEnd.current?.closest<HTMLElement>(".lab-ai-log");
+    if (log) log.scrollTop = log.scrollHeight;
   }, [messages, aiBusy]);
 
   useEffect(() => {

@@ -20,7 +20,7 @@ import (
 	"github.com/xianshujun/awsome-go-study/app/web"
 )
 
-// version 由构建脚本注入：-X .../app/backend.Version=0.10.0。
+// version 由构建脚本注入：-X .../app/backend.Version=0.11.0。
 // 直接 go run 的源码构建是 dev，更新检查会跳过程序本身的比较。
 var version = backend.Version
 
